@@ -99,7 +99,6 @@ def test_seed_database_creates_all_expected_records(db_session: Session) -> None
     assert seed_audit.event_data["customers_count"] == 25
 
 
-
 def test_seed_database_is_idempotent(db_session: Session) -> None:
     """Running seed multiple times should not raise integrity or duplicate errors."""
     seed_database(db_session)

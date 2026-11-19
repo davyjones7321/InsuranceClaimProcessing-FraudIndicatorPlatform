@@ -86,7 +86,9 @@ def calculate_assessment_cap(inp: AssessmentInput) -> AssessmentOutput:
             {
                 "sum_insured": str(round_money(inp.sum_insured)),
                 "value_at_risk": str(round_money(inp.value_at_risk)),
-                "coinsurance_factor": str(coinsurance_factor.quantize(FOUR_DECIMALS, rounding=ROUND_HALF_UP)),
+                "coinsurance_factor": str(
+                    coinsurance_factor.quantize(FOUR_DECIMALS, rounding=ROUND_HALF_UP)
+                ),
                 "adjusted_loss": str(round_money(adjusted_loss)),
                 "after_deductible": str(round_money(after_deductible)),
                 "payable": str(round_money(payable)),

@@ -210,11 +210,7 @@ def test_customer_registers_claim_successfully(
     assert data["customer_id"] == str(registration_setup["cust_a"].id)
 
     # Verify genesis audit log row created for this claim
-    audit_row = (
-        db_session.query(AuditLog)
-        .filter_by(chain_key=f"claim:{data['id']}", seq=1)
-        .first()
-    )
+    audit_row = db_session.query(AuditLog).filter_by(chain_key=f"claim:{data['id']}", seq=1).first()
     assert audit_row is not None
     assert audit_row.action == "CLAIM_REGISTERED"
     assert audit_row.actor_role == "customer"
@@ -239,7 +235,10 @@ def test_customer_cannot_register_claim_on_other_customer_policy(
 
     res = client.post("/api/claims", headers=hdr, json=payload)
     assert res.status_code == 403
-    assert "Customers can only register claims against their own active policies" in res.json()["detail"]
+    assert (
+        "Customers can only register claims against their own active policies"
+        in res.json()["detail"]
+    )
 
 
 def test_staff_registers_claim_on_behalf_of_customer(

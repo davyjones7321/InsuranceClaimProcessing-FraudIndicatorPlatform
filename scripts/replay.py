@@ -82,7 +82,9 @@ def replay_validation_run(
             )
 
     if verbose and not errors:
-        print(f"  [OK] ValidationRun {run.id} for Claim {claim.claim_ref}: {run.overall_result.value} ({len(run.results)} rules verified)")
+        print(
+            f"  [OK] ValidationRun {run.id} for Claim {claim.claim_ref}: {run.overall_result.value} ({len(run.results)} rules verified)"
+        )
 
     return len(errors) == 0, errors
 
@@ -93,7 +95,9 @@ def replay_risk_evaluation(
     """Replay a single stored risk evaluation and verify bit-for-bit determinism."""
     claim = db.get(Claim, risk_eval.claim_id)
     if not claim:
-        return False, [f"Claim '{risk_eval.claim_id}' not found for RiskEvaluation '{risk_eval.id}'"]
+        return False, [
+            f"Claim '{risk_eval.claim_id}' not found for RiskEvaluation '{risk_eval.id}'"
+        ]
 
     service = RiskService(db)
     risk_input = service.build_risk_input(
@@ -106,9 +110,7 @@ def replay_risk_evaluation(
 
     # Check score
     if replayed.score != risk_eval.score:
-        errors.append(
-            f"Score mismatch: stored={risk_eval.score}, replayed={replayed.score}"
-        )
+        errors.append(f"Score mismatch: stored={risk_eval.score}, replayed={replayed.score}")
 
     # Check category
     if replayed.category.value != risk_eval.category.value:
@@ -134,10 +136,14 @@ def replay_risk_evaluation(
         r_ind = replayed_inds.get(ind_id)
 
         if not s_ind:
-            errors.append(f"Indicator '{ind_id}' evaluated during replay but was absent in stored evaluation")
+            errors.append(
+                f"Indicator '{ind_id}' evaluated during replay but was absent in stored evaluation"
+            )
             continue
         if not r_ind:
-            errors.append(f"Indicator '{ind_id}' was in stored evaluation but was not produced during replay")
+            errors.append(
+                f"Indicator '{ind_id}' was in stored evaluation but was not produced during replay"
+            )
             continue
 
         if s_ind.triggered != r_ind.triggered:
@@ -150,7 +156,9 @@ def replay_risk_evaluation(
             )
 
     if verbose and not errors:
-        print(f"  [OK] RiskEvaluation {risk_eval.id} for Claim {claim.claim_ref}: score={risk_eval.score}, category={risk_eval.category.value} ({len(risk_eval.indicator_results)} indicators verified)")
+        print(
+            f"  [OK] RiskEvaluation {risk_eval.id} for Claim {claim.claim_ref}: score={risk_eval.score}, category={risk_eval.category.value} ({len(risk_eval.indicator_results)} indicators verified)"
+        )
 
     return len(errors) == 0, errors
 
@@ -175,7 +183,9 @@ def replay_assessment(
         return False, [f"Coverage row not found for Claim '{claim.claim_ref}'"]
 
     trace = assessment.calculation_trace or {}
-    remaining_limit = Decimal(trace.get("remaining_limit", str(coverage.limit_amount - coverage.consumed_amount)))
+    remaining_limit = Decimal(
+        trace.get("remaining_limit", str(coverage.limit_amount - coverage.consumed_amount))
+    )
     deductible = Decimal(trace.get("deductible", str(coverage.deductible)))
     copay_percent = Decimal(trace.get("copay_percent", str(coverage.copay_percent)))
     depreciation = Decimal(trace.get("depreciation", "0.00"))
@@ -203,10 +213,11 @@ def replay_assessment(
         )
 
     if verbose and not errors:
-        print(f"  [OK] Assessment {assessment.id} for Claim {claim.claim_ref}: max_eligible={assessment.max_eligible_amount}")
+        print(
+            f"  [OK] Assessment {assessment.id} for Claim {claim.claim_ref}: max_eligible={assessment.max_eligible_amount}"
+        )
 
     return len(errors) == 0, errors
-
 
 
 def run_replay(
@@ -252,7 +263,9 @@ def run_replay(
         total_runs = len(val_runs) + len(risk_evals) + len(assessments)
         if total_runs == 0:
             target = f"for claim '{claim_id}'" if claim_id else "in database"
-            print(f"No validation runs, risk evaluations, or assessments found {target}. Nothing to replay.")
+            print(
+                f"No validation runs, risk evaluations, or assessments found {target}. Nothing to replay."
+            )
             return 0
 
         print(

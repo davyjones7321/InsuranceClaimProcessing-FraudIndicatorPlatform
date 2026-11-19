@@ -305,9 +305,7 @@ class ClaimService:
             )
         ).first()
         if not doc:
-            raise ClaimValidationError(
-                f"Document '{document_id}' not found on claim '{claim_id}'"
-            )
+            raise ClaimValidationError(f"Document '{document_id}' not found on claim '{claim_id}'")
 
         # Enforce mandatory remarks and reason code on INVALID
         doc.status = review_req.status

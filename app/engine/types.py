@@ -196,5 +196,3 @@ class AssessmentOutput:
     assessed_loss: Decimal
     max_eligible_amount: Decimal
     calculation_trace: dict[str, Any]
-
-

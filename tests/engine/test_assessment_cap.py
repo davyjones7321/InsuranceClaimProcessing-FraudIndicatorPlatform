@@ -174,7 +174,6 @@ def test_property_zero_value_at_risk() -> None:
     assert out.calculation_trace["coinsurance_factor"] == "1.0000"
 
 
-
 @given(
     loss=st.decimals(min_value=Decimal("0.00"), max_value=Decimal("1000000.00"), places=2),
     limit=st.decimals(min_value=Decimal("0.00"), max_value=Decimal("1000000.00"), places=2),

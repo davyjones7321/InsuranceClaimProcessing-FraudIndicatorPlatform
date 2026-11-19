@@ -182,7 +182,10 @@ def test_document_upload_security_rejects_disallowed_mime_types(
 
 
 def test_document_upload_rejects_oversized_files(
-    client: TestClient, db_session: Session, document_test_setup: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    client: TestClient,
+    db_session: Session,
+    document_test_setup: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Files exceeding maximum allowed size are rejected with 413 Request Entity Too Large."""
     user_cust = document_test_setup["user_cust"]
@@ -320,7 +323,9 @@ def test_sensitive_document_access_control_and_view_logging(
         f"/api/claims/{claim.id}/documents",
         headers=hdr_cust,
         data={"doc_code": "MEDICAL_REPORT", "named_person": "Diana Prince"},
-        files={"file": ("med_report.pdf", b"%PDF-1.4 confidential medical record", "application/pdf")},
+        files={
+            "file": ("med_report.pdf", b"%PDF-1.4 confidential medical record", "application/pdf")
+        },
     )
     doc_id = upload_res.json()["id"]
 

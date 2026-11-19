@@ -91,4 +91,6 @@ def test_engine_has_zero_forbidden_imports_or_calls() -> None:
         visitor.visit(tree)
         all_violations.extend(visitor.violations)
 
-    assert not all_violations, "Purity violations found in app/engine:\n" + "\n".join(all_violations)
+    assert not all_violations, "Purity violations found in app/engine:\n" + "\n".join(
+        all_violations
+    )

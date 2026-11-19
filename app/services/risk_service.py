@@ -78,9 +78,7 @@ class RiskService:
 
         # Valid documents for inconsistency verification
         documents = list(
-            self.db.scalars(
-                select(ClaimDocument).where(ClaimDocument.claim_id == claim.id)
-            ).all()
+            self.db.scalars(select(ClaimDocument).where(ClaimDocument.claim_id == claim.id)).all()
         )
 
         # Historical claims for repeated-claim & duplicate indicators
@@ -107,9 +105,7 @@ class RiskService:
                     Decision.approved_amount.is_not(None),
                 )
             )
-            peer_amounts = tuple(
-                amt for amt in self.db.scalars(peer_stmt).all() if amt is not None
-            )
+            peer_amounts = tuple(amt for amt in self.db.scalars(peer_stmt).all() if amt is not None)
 
         # Evaluation date in configured business timezone
         if evaluation_date is None:
@@ -297,7 +293,9 @@ class RiskService:
             # Step 2: Route to UNDER_INVESTIGATION or READY_FOR_ASSESSMENT
             if risk_output.requires_investigation:
                 target_status = ClaimStatus.UNDER_INVESTIGATION
-                transition_reason = f"Flagged for investigation: score {risk_output.score} exceeds threshold"
+                transition_reason = (
+                    f"Flagged for investigation: score {risk_output.score} exceeds threshold"
+                )
 
                 # Automatically create Investigation record per Section 11
                 investigation = Investigation(
@@ -393,9 +391,7 @@ class RiskService:
         )
         return list(self.db.scalars(stmt).all())
 
-    def get_latest_risk_evaluation(
-        self, claim_id: uuid.UUID, actor: User
-    ) -> RiskEvaluation | None:
+    def get_latest_risk_evaluation(self, claim_id: uuid.UUID, actor: User) -> RiskEvaluation | None:
         """Retrieve the most recent risk evaluation for a claim."""
         runs = self.get_risk_evaluations(claim_id, actor)
         return runs[0] if runs else None

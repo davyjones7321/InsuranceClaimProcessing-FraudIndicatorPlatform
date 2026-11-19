@@ -55,7 +55,9 @@ def ensure_drill_source_db(source_url: str | None, temp_dir: Path) -> str:
             engine.dispose()
             return settings.DATABASE_URL
         except Exception:
-            print("Notice: PostgreSQL server not accessible on localhost. Using dedicated seeded SQLite drill database.")
+            print(
+                "Notice: PostgreSQL server not accessible on localhost. Using dedicated seeded SQLite drill database."
+            )
 
     # Create and populate a dedicated SQLite source DB
     source_sqlite = temp_dir / "drill_source.sqlite"
@@ -65,12 +67,15 @@ def ensure_drill_source_db(source_url: str | None, temp_dir: Path) -> str:
     SessionMaker = sessionmaker(bind=engine)
     with SessionMaker() as session:
         from scripts.seed import seed_database
+
         seed_database(session)
     engine.dispose()
     return source_db_url
 
 
-def run_drill(source_url: str | None = None, temp_dir: Path | None = None) -> dict[str, float | int | bool | str]:
+def run_drill(
+    source_url: str | None = None, temp_dir: Path | None = None
+) -> dict[str, float | int | bool | str]:
     drill_start = time.perf_counter()
     working_dir = temp_dir or Path(tempfile.mkdtemp(prefix="claims_drill_"))
 
@@ -145,7 +150,9 @@ def run_drill(source_url: str | None = None, temp_dir: Path | None = None) -> di
             verified_chains += 1
         else:
             broken_chains += 1
-            print(f"  ❌ Chain '{head.chain_key}' broken at seq {res.first_broken_seq}: {res.error_message}")
+            print(
+                f"  ❌ Chain '{head.chain_key}' broken at seq {res.first_broken_seq}: {res.error_message}"
+            )
 
     chain_duration = time.perf_counter() - t2
     session.close()
@@ -165,7 +172,9 @@ def run_drill(source_url: str | None = None, temp_dir: Path | None = None) -> di
     print(f"  • Backup Duration:        {backup_duration:.4f}s ({backup_size} bytes)")
     print(f"  • Restore Duration:       {restore_duration:.4f}s")
     print(f"  • Audit Verify Duration:  {chain_duration:.4f}s")
-    print(f"  • Total Entities Restored:{user_count + customer_count + policy_count + claim_count + audit_log_count}")
+    print(
+        f"  • Total Entities Restored:{user_count + customer_count + policy_count + claim_count + audit_log_count}"
+    )
     print(f"  • Chains Verified:        {verified_chains}/{total_chains} (100% valid)")
     print("=" * 70)
 

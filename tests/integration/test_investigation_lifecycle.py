@@ -208,7 +208,10 @@ def test_findings_and_completion_lifecycle(
     # 3. Complete investigation
     resp = client.post(
         f"/api/claims/{claim.id}/investigations/complete",
-        json={"outcome": InvestigationOutcome.CLEARED.value, "remarks": "Claim cleared after on-site audit."},
+        json={
+            "outcome": InvestigationOutcome.CLEARED.value,
+            "remarks": "Claim cleared after on-site audit.",
+        },
         headers=inv_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -218,7 +221,9 @@ def test_findings_and_completion_lifecycle(
     # 4. Verify claim transitioned to READY_FOR_ASSESSMENT
     db_session.refresh(claim)
     assert claim.status == ClaimStatus.READY_FOR_ASSESSMENT
-    assert claim.status_version == 4  # incremented twice (UNDER_INVESTIGATION -> INVESTIGATION_COMPLETE -> READY_FOR_ASSESSMENT)
+    assert (
+        claim.status_version == 4
+    )  # incremented twice (UNDER_INVESTIGATION -> INVESTIGATION_COMPLETE -> READY_FOR_ASSESSMENT)
 
 
 def test_investigation_escalation_and_manager_resolution(

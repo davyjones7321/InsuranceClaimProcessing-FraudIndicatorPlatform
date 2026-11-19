@@ -74,7 +74,9 @@ def backup_database(
         return dest_path
 
     # Fallback when pg_dump is not installed on the host
-    print(f"Notice: pg_dump utility not found on PATH. Performing SQLite / SQL dump fallback to {dest_path}...")
+    print(
+        f"Notice: pg_dump utility not found on PATH. Performing SQLite / SQL dump fallback to {dest_path}..."
+    )
     from sqlalchemy import create_engine
 
     from app.db.base import Base

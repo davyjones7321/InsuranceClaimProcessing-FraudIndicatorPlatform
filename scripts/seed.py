@@ -456,7 +456,9 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
         all_policies = list(db.scalars(select(Policy)).all())
         staff_user = db.scalars(select(User).where(User.role == UserRole.STAFF)).first()
         assessor_user = db.scalars(select(User).where(User.role == UserRole.ASSESSOR)).first()
-        investigator_user = db.scalars(select(User).where(User.role == UserRole.INVESTIGATOR)).first()
+        investigator_user = db.scalars(
+            select(User).where(User.role == UserRole.INVESTIGATOR)
+        ).first()
         manager_user = db.scalars(select(User).where(User.role == UserRole.MANAGER)).first()
         admin_user = db.scalars(select(User).where(User.role == UserRole.ADMIN)).first()
         fallback_actor_id = admin_user.id if admin_user else seed_uuid("system_actor")
@@ -526,7 +528,8 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                 channel=ClaimChannel.STAFF if idx % 2 == 0 else ClaimChannel.CUSTOMER,
                 status=target_status,
                 status_version=4
-                if target_status in (ClaimStatus.ASSESSED, ClaimStatus.APPROVED, ClaimStatus.REJECTED)
+                if target_status
+                in (ClaimStatus.ASSESSED, ClaimStatus.APPROVED, ClaimStatus.REJECTED)
                 else 2,
             )
             db.add(claim)

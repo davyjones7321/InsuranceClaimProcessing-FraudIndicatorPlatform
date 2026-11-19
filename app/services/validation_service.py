@@ -361,9 +361,7 @@ class ValidationService:
         )
         return list(self.db.scalars(stmt).all())
 
-    def get_latest_validation_run(
-        self, claim_id: uuid.UUID, actor: User
-    ) -> ValidationRun | None:
+    def get_latest_validation_run(self, claim_id: uuid.UUID, actor: User) -> ValidationRun | None:
         """Retrieve the latest validation run for a claim."""
         runs = self.get_validation_runs(claim_id, actor)
         return runs[0] if runs else None

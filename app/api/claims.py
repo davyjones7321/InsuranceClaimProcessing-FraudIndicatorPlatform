@@ -892,5 +892,3 @@ def list_decisions(
         return [DecisionResponse.model_validate(d) for d in decisions]
     except DecisionServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-

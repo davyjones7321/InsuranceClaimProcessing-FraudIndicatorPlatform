@@ -144,7 +144,19 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         status_version=2,
     )
 
-    db_session.add_all([cust, user_cust, user_other_cust, user_staff, user_admin, policy, coverage, claim_clean, claim_early])
+    db_session.add_all(
+        [
+            cust,
+            user_cust,
+            user_other_cust,
+            user_staff,
+            user_admin,
+            policy,
+            coverage,
+            claim_clean,
+            claim_early,
+        ]
+    )
     db_session.commit()
 
     return {
@@ -181,7 +193,9 @@ def test_clean_claim_routes_to_ready_for_assessment(
     assert claim.status_version == 4  # VALIDATED -> RISK_EVALUATED -> READY_FOR_ASSESSMENT
 
     # Check no investigation created
-    inv = db_session.scalars(select(Investigation).where(Investigation.claim_id == claim.id)).first()
+    inv = db_session.scalars(
+        select(Investigation).where(Investigation.claim_id == claim.id)
+    ).first()
     assert inv is None
 
     # Check status history
@@ -217,7 +231,9 @@ def test_flagged_claim_routes_to_under_investigation_and_creates_record(
     assert claim.status == ClaimStatus.UNDER_INVESTIGATION
 
     # Check investigation created automatically
-    inv = db_session.scalars(select(Investigation).where(Investigation.claim_id == claim.id)).first()
+    inv = db_session.scalars(
+        select(Investigation).where(Investigation.claim_id == claim.id)
+    ).first()
     assert inv is not None
     assert inv.status == InvestigationStatus.ASSIGNED
     assert inv.assigned_by == staff.id
@@ -249,7 +265,9 @@ def test_risk_evaluation_api_endpoints_and_scoping(
     assert len(evals) >= 1
 
     # 3. Customer reads latest risk evaluation
-    resp_latest = client.get(f"/api/claims/{claim.id}/risk-evaluations/latest", headers=cust_headers)
+    resp_latest = client.get(
+        f"/api/claims/{claim.id}/risk-evaluations/latest", headers=cust_headers
+    )
     assert resp_latest.status_code == 200
     assert resp_latest.json()["id"] == evals[0]["id"]
 
@@ -266,7 +284,9 @@ def test_deterministic_replay_on_risk_evaluation(
     admin: User = risk_fixture["user_admin"]
 
     risk_service = RiskService(db_session)
-    stored_eval = risk_service.evaluate_claim_risk(claim.id, admin, evaluation_date=date(2026, 6, 20))
+    stored_eval = risk_service.evaluate_claim_risk(
+        claim.id, admin, evaluation_date=date(2026, 6, 20)
+    )
 
     # Replay individual risk evaluation
     is_valid, errors = replay_risk_evaluation(db_session, stored_eval, verbose=True)

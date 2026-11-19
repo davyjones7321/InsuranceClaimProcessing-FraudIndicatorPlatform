@@ -40,9 +40,7 @@ def evaluate_risk(risk_input: RiskInput) -> RiskOutput:
     sorted_history: list[HistoricalClaimInput] = sorted(
         risk_input.historical_claims, key=lambda c: (c.incident_date, c.claim_id)
     )
-    sorted_docs: list[DocumentInput] = sorted(
-        risk_input.documents, key=lambda d: d.document_id
-    )
+    sorted_docs: list[DocumentInput] = sorted(risk_input.documents, key=lambda d: d.document_id)
 
     results: list[RiskIndicatorResult] = []
 
@@ -212,7 +210,9 @@ def evaluate_risk(risk_input: RiskInput) -> RiskOutput:
         if n % 2 == 1:
             median_amt = peer_amounts[n // 2]
         else:
-            median_amt = round_money((peer_amounts[n // 2 - 1] + peer_amounts[n // 2]) / Decimal("2"))
+            median_amt = round_money(
+                (peer_amounts[n // 2 - 1] + peer_amounts[n // 2]) / Decimal("2")
+            )
 
         threshold_peer_amt = round_money(median_amt * peer_mult)
         r04_triggered = claim.requested_amount > threshold_peer_amt
@@ -343,7 +343,11 @@ def evaluate_risk(risk_input: RiskInput) -> RiskOutput:
 
     matched_duplicates: list[dict[str, Any]] = []
     for c in sorted_history:
-        if c.policy_id == claim.policy_id and c.claim_id != claim.claim_id and c.status != "WITHDRAWN":
+        if (
+            c.policy_id == claim.policy_id
+            and c.claim_id != claim.claim_id
+            and c.status != "WITHDRAWN"
+        ):
             if c.incident_date == claim.incident_date and c.requested_amount > Decimal("0.00"):
                 diff = abs(claim.requested_amount - c.requested_amount)
                 variance_pct = round_money((diff / c.requested_amount) * Decimal("100.00"))
@@ -476,9 +480,8 @@ def evaluate_risk(risk_input: RiskInput) -> RiskOutput:
     round_mult = Decimal(str(cfg_r10.get("round_multiple", 10000)))
     min_round_amt = Decimal(str(cfg_r10.get("min_amount", 50000)))
 
-    r10_triggered = (
-        claim.requested_amount >= min_round_amt
-        and (claim.requested_amount % round_mult == Decimal("0.00"))
+    r10_triggered = claim.requested_amount >= min_round_amt and (
+        claim.requested_amount % round_mult == Decimal("0.00")
     )
     results.append(
         RiskIndicatorResult(

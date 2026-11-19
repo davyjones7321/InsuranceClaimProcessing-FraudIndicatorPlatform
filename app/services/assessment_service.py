@@ -108,17 +108,11 @@ class AssessmentService:
         remaining_limit = max(Decimal("0.00"), coverage.limit_amount - coverage.consumed_amount)
         policy = claim.policy
 
-        deductible = (
-            payload.deductible if payload.deductible is not None else coverage.deductible
-        )
+        deductible = payload.deductible if payload.deductible is not None else coverage.deductible
         copay_percent = (
-            payload.copay_percent
-            if payload.copay_percent is not None
-            else coverage.copay_percent
+            payload.copay_percent if payload.copay_percent is not None else coverage.copay_percent
         )
-        depreciation = (
-            payload.depreciation if payload.depreciation is not None else Decimal("0.00")
-        )
+        depreciation = payload.depreciation if payload.depreciation is not None else Decimal("0.00")
         sum_insured = policy.sum_insured
         value_at_risk = (
             payload.value_at_risk if payload.value_at_risk is not None else Decimal("0.00")

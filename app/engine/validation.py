@@ -37,15 +37,11 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
     blocked_docs: list[str] = []
 
     # Sort inputs for strict deterministic iteration order
-    sorted_coverages: list[CoverageInput] = sorted(
-        val_input.coverages, key=lambda c: c.coverage_id
-    )
+    sorted_coverages: list[CoverageInput] = sorted(val_input.coverages, key=lambda c: c.coverage_id)
     sorted_exclusions: list[ExclusionInput] = sorted(
         val_input.exclusions, key=lambda e: e.exclusion_code
     )
-    sorted_documents: list[DocumentInput] = sorted(
-        val_input.documents, key=lambda d: d.document_id
-    )
+    sorted_documents: list[DocumentInput] = sorted(val_input.documents, key=lambda d: d.document_id)
     sorted_req_docs: list[RequiredDocumentTypeInput] = sorted(
         val_input.required_document_types, key=lambda r: r.doc_code
     )
@@ -362,7 +358,10 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
     v09_ver = str(cfg_v09.get("version", "1.0"))
     v09_snapshot: dict[str, Any]
     if policy is None or matching_coverage is None:
-        v09_snapshot = {"policy_present": policy is not None, "coverage_present": matching_coverage is not None}
+        v09_snapshot = {
+            "policy_present": policy is not None,
+            "coverage_present": matching_coverage is not None,
+        }
         results.append(
             ValidationRuleResult(
                 rule_id="V09",
@@ -517,7 +516,12 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
 
     v12_snapshot = {
         "missing_fields": missing_fields,
-        "fields_checked": ["incident_date", "incident_location", "incident_description", "requested_amount"],
+        "fields_checked": [
+            "incident_date",
+            "incident_location",
+            "incident_description",
+            "requested_amount",
+        ],
     }
     if missing_fields:
         results.append(

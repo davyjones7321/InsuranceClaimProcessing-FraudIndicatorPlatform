@@ -141,7 +141,20 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         status_version=1,
     )
 
-    db_session.add_all([cust, user_cust, user_other_cust, user_staff, user_assessor, user_admin, policy, coverage, req_doc, claim])
+    db_session.add_all(
+        [
+            cust,
+            user_cust,
+            user_other_cust,
+            user_staff,
+            user_assessor,
+            user_admin,
+            policy,
+            coverage,
+            req_doc,
+            claim,
+        ]
+    )
     db_session.commit()
 
     return {
@@ -214,10 +227,13 @@ def test_document_upload_and_review_unblocks_claim_validation(
 
     # Step 3: Review document as VALID
     from app.schemas.documents import DocumentReviewRequest
+
     reviewed_doc = claim_service.review_document(
         claim_id=claim.id,
         document_id=uploaded_doc.id,
-        review_req=DocumentReviewRequest(status=DocumentStatus.VALID, review_remarks="Verified by billing department"),
+        review_req=DocumentReviewRequest(
+            status=DocumentStatus.VALID, review_remarks="Verified by billing department"
+        ),
         actor=assessor,
     )
     assert reviewed_doc.status == DocumentStatus.VALID

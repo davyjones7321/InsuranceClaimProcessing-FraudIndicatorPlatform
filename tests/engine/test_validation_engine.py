@@ -98,9 +98,7 @@ def make_valid_validation_input(
     return ValidationInput(
         claim=claim or make_valid_claim_input(),
         policy=resolved_policy,
-        coverages=coverages
-        if coverages is not None
-        else (make_valid_coverage_input(),),
+        coverages=coverages if coverages is not None else (make_valid_coverage_input(),),
         exclusions=exclusions if exclusions is not None else (),
         documents=documents
         if documents is not None
@@ -112,7 +110,9 @@ def make_valid_validation_input(
         if req_docs is not None
         else (
             RequiredDocumentTypeInput(doc_code="DOC_BILL", name="Hospital Bill", is_mandatory=True),
-            RequiredDocumentTypeInput(doc_code="DOC_REPORT", name="Medical Report", is_mandatory=True),
+            RequiredDocumentTypeInput(
+                doc_code="DOC_REPORT", name="Medical Report", is_mandatory=True
+            ),
         ),
         evaluation_date=eval_date,
         ruleset=ruleset or ACTIVE_RULESET,
@@ -122,6 +122,7 @@ def make_valid_validation_input(
 # ========================================================
 # Unit Tests for Individual Rules V01 - V13
 # ========================================================
+
 
 def test_v01_policy_exists_and_owner_match() -> None:
     # Match: PASS
@@ -168,19 +169,28 @@ def test_v03_incident_in_policy_period() -> None:
     end = date(2026, 12, 31)
 
     # Exactly on start_date: PASS
-    clm_start = make_valid_claim_input(incident_date=start, registered_date=start + timedelta(days=5))
+    clm_start = make_valid_claim_input(
+        incident_date=start, registered_date=start + timedelta(days=5)
+    )
     inp_start = make_valid_validation_input(claim=clm_start, eval_date=start + timedelta(days=5))
     out_start = evaluate_validation(inp_start)
-    assert next(r for r in out_start.rule_results if r.rule_id == "V03").outcome == RuleOutcomeEnum.PASS
+    assert (
+        next(r for r in out_start.rule_results if r.rule_id == "V03").outcome
+        == RuleOutcomeEnum.PASS
+    )
 
     # Exactly on end_date: PASS
     clm_end = make_valid_claim_input(incident_date=end, registered_date=end)
     inp_end = make_valid_validation_input(claim=clm_end, eval_date=end)
     out_end = evaluate_validation(inp_end)
-    assert next(r for r in out_end.rule_results if r.rule_id == "V03").outcome == RuleOutcomeEnum.PASS
+    assert (
+        next(r for r in out_end.rule_results if r.rule_id == "V03").outcome == RuleOutcomeEnum.PASS
+    )
 
     # Day before start: FAIL
-    clm_before = make_valid_claim_input(incident_date=start - timedelta(days=1), registered_date=start)
+    clm_before = make_valid_claim_input(
+        incident_date=start - timedelta(days=1), registered_date=start
+    )
     inp_before = make_valid_validation_input(claim=clm_before, eval_date=start)
     out_before = evaluate_validation(inp_before)
     v03_before = next(r for r in out_before.rule_results if r.rule_id == "V03")
@@ -188,7 +198,9 @@ def test_v03_incident_in_policy_period() -> None:
     assert v03_before.reason_code == "INCIDENT_OUTSIDE_POLICY_PERIOD"
 
     # Day after end: FAIL
-    clm_after = make_valid_claim_input(incident_date=end + timedelta(days=1), registered_date=end + timedelta(days=2))
+    clm_after = make_valid_claim_input(
+        incident_date=end + timedelta(days=1), registered_date=end + timedelta(days=2)
+    )
     inp_after = make_valid_validation_input(claim=clm_after, eval_date=end + timedelta(days=2))
     out_after = evaluate_validation(inp_after)
     v03_after = next(r for r in out_after.rule_results if r.rule_id == "V03")
@@ -200,7 +212,9 @@ def test_v04_valid_incident_date() -> None:
     eval_d = date(2026, 5, 1)
 
     # Future date relative to eval_date: FAIL
-    clm_future = make_valid_claim_input(incident_date=date(2026, 5, 2), registered_date=date(2026, 5, 2))
+    clm_future = make_valid_claim_input(
+        incident_date=date(2026, 5, 2), registered_date=date(2026, 5, 2)
+    )
     inp_future = make_valid_validation_input(claim=clm_future, eval_date=eval_d)
     out_future = evaluate_validation(inp_future)
     v04_fut = next(r for r in out_future.rule_results if r.rule_id == "V04")
@@ -208,7 +222,9 @@ def test_v04_valid_incident_date() -> None:
     assert v04_fut.reason_code == "INCIDENT_DATE_INVALID"
 
     # Incident date after registered date: FAIL
-    clm_after_reg = make_valid_claim_input(incident_date=date(2026, 4, 10), registered_date=date(2026, 4, 5))
+    clm_after_reg = make_valid_claim_input(
+        incident_date=date(2026, 4, 10), registered_date=date(2026, 4, 5)
+    )
     inp_after_reg = make_valid_validation_input(claim=clm_after_reg, eval_date=eval_d)
     out_after_reg = evaluate_validation(inp_after_reg)
     v04_reg = next(r for r in out_after_reg.rule_results if r.rule_id == "V04")
@@ -219,13 +235,19 @@ def test_v05_filing_window() -> None:
     inc_date = date(2026, 1, 1)
 
     # 90 days exact boundary: PASS
-    clm_90 = make_valid_claim_input(incident_date=inc_date, registered_date=inc_date + timedelta(days=90))
+    clm_90 = make_valid_claim_input(
+        incident_date=inc_date, registered_date=inc_date + timedelta(days=90)
+    )
     inp_90 = make_valid_validation_input(claim=clm_90, eval_date=inc_date + timedelta(days=90))
     out_90 = evaluate_validation(inp_90)
-    assert next(r for r in out_90.rule_results if r.rule_id == "V05").outcome == RuleOutcomeEnum.PASS
+    assert (
+        next(r for r in out_90.rule_results if r.rule_id == "V05").outcome == RuleOutcomeEnum.PASS
+    )
 
     # 91 days: FAIL
-    clm_91 = make_valid_claim_input(incident_date=inc_date, registered_date=inc_date + timedelta(days=91))
+    clm_91 = make_valid_claim_input(
+        incident_date=inc_date, registered_date=inc_date + timedelta(days=91)
+    )
     inp_91 = make_valid_validation_input(claim=clm_91, eval_date=inc_date + timedelta(days=91))
     out_91 = evaluate_validation(inp_91)
     v05_fail = next(r for r in out_91.rule_results if r.rule_id == "V05")
@@ -256,7 +278,9 @@ def test_v08_policy_exclusion_check() -> None:
     assert next(r for r in out.rule_results if r.rule_id == "V08").outcome == RuleOutcomeEnum.PASS
 
     # Exclusion code matches claim category: FAIL
-    excl = ExclusionInput(exclusion_code="CAT_SURGERY", description="Cosmetic and elective surgeries")
+    excl = ExclusionInput(
+        exclusion_code="CAT_SURGERY", description="Cosmetic and elective surgeries"
+    )
     inp_ex = make_valid_validation_input(exclusions=(excl,))
     out_ex = evaluate_validation(inp_ex)
     v08 = next(r for r in out_ex.rule_results if r.rule_id == "V08")
@@ -270,13 +294,22 @@ def test_v09_waiting_period_satisfied() -> None:
     eligible_date = pol_start + timedelta(days=waiting_days)  # Jan 31
 
     # Exact boundary (eligible date): PASS
-    clm_exact = make_valid_claim_input(incident_date=eligible_date, registered_date=eligible_date + timedelta(days=1))
-    inp_exact = make_valid_validation_input(claim=clm_exact, eval_date=eligible_date + timedelta(days=1))
+    clm_exact = make_valid_claim_input(
+        incident_date=eligible_date, registered_date=eligible_date + timedelta(days=1)
+    )
+    inp_exact = make_valid_validation_input(
+        claim=clm_exact, eval_date=eligible_date + timedelta(days=1)
+    )
     out_exact = evaluate_validation(inp_exact)
-    assert next(r for r in out_exact.rule_results if r.rule_id == "V09").outcome == RuleOutcomeEnum.PASS
+    assert (
+        next(r for r in out_exact.rule_results if r.rule_id == "V09").outcome
+        == RuleOutcomeEnum.PASS
+    )
 
     # Day before eligible date: FAIL
-    clm_early = make_valid_claim_input(incident_date=eligible_date - timedelta(days=1), registered_date=eligible_date)
+    clm_early = make_valid_claim_input(
+        incident_date=eligible_date - timedelta(days=1), registered_date=eligible_date
+    )
     inp_early = make_valid_validation_input(claim=clm_early, eval_date=eligible_date)
     out_early = evaluate_validation(inp_early)
     v09 = next(r for r in out_early.rule_results if r.rule_id == "V09")
@@ -286,19 +319,25 @@ def test_v09_waiting_period_satisfied() -> None:
 
 def test_v10_positive_requested_amount() -> None:
     # Positive: PASS
-    inp = make_valid_validation_input(claim=make_valid_claim_input(requested_amount=Decimal("0.01")))
+    inp = make_valid_validation_input(
+        claim=make_valid_claim_input(requested_amount=Decimal("0.01"))
+    )
     out = evaluate_validation(inp)
     assert next(r for r in out.rule_results if r.rule_id == "V10").outcome == RuleOutcomeEnum.PASS
 
     # Zero: FAIL
-    inp_zero = make_valid_validation_input(claim=make_valid_claim_input(requested_amount=Decimal("0.00")))
+    inp_zero = make_valid_validation_input(
+        claim=make_valid_claim_input(requested_amount=Decimal("0.00"))
+    )
     out_zero = evaluate_validation(inp_zero)
     v10_zero = next(r for r in out_zero.rule_results if r.rule_id == "V10")
     assert v10_zero.outcome == RuleOutcomeEnum.FAIL
     assert v10_zero.reason_code == "AMOUNT_INVALID"
 
     # Negative: FAIL
-    inp_neg = make_valid_validation_input(claim=make_valid_claim_input(requested_amount=Decimal("-100.00")))
+    inp_neg = make_valid_validation_input(
+        claim=make_valid_claim_input(requested_amount=Decimal("-100.00"))
+    )
     out_neg = evaluate_validation(inp_neg)
     v10_neg = next(r for r in out_neg.rule_results if r.rule_id == "V10")
     assert v10_neg.outcome == RuleOutcomeEnum.FAIL
@@ -306,7 +345,9 @@ def test_v10_positive_requested_amount() -> None:
 
 def test_v11_coverage_limit_policy_behaviors() -> None:
     # Remaining limit = 50000 - 45000 = 5000
-    cov = make_valid_coverage_input(limit_amount=Decimal("50000.00"), consumed_amount=Decimal("45000.00"))
+    cov = make_valid_coverage_input(
+        limit_amount=Decimal("50000.00"), consumed_amount=Decimal("45000.00")
+    )
 
     # Requesting 6000 under CAP_WITH_WARNING (default): PASS with limit_warning=True in snapshot
     inp_cap = make_valid_validation_input(
@@ -344,14 +385,20 @@ def test_v12_mandatory_fields_present() -> None:
     # Missing description
     inp_no_desc = make_valid_validation_input(claim=make_valid_claim_input(description="   "))
     out_no_desc = evaluate_validation(inp_no_desc)
-    assert next(r for r in out_no_desc.rule_results if r.rule_id == "V12").outcome == RuleOutcomeEnum.FAIL
+    assert (
+        next(r for r in out_no_desc.rule_results if r.rule_id == "V12").outcome
+        == RuleOutcomeEnum.FAIL
+    )
 
 
 def test_v13_document_lifecycle_and_blocked_docs() -> None:
     # All mandatory docs VALID: PASS
     inp_valid = make_valid_validation_input()
     out_valid = evaluate_validation(inp_valid)
-    assert next(r for r in out_valid.rule_results if r.rule_id == "V13").outcome == RuleOutcomeEnum.PASS
+    assert (
+        next(r for r in out_valid.rule_results if r.rule_id == "V13").outcome
+        == RuleOutcomeEnum.PASS
+    )
     assert out_valid.overall_result == ValidationOutcomeEnum.PASS
 
     # Mandatory doc missing: V13 FAIL with reason DOCUMENTS_MISSING
@@ -434,9 +481,7 @@ def test_engine_determinism_under_shuffled_inputs() -> None:
         res_shuffled = evaluate_validation(shuffled_inp)
         assert res_shuffled.overall_result == res1.overall_result
         assert len(res_shuffled.rule_results) == len(res1.rule_results)
-        for r_orig, r_shuf in zip(
-            res1.rule_results, res_shuffled.rule_results, strict=True
-        ):
+        for r_orig, r_shuf in zip(res1.rule_results, res_shuffled.rule_results, strict=True):
             assert r_orig.rule_id == r_shuf.rule_id
             assert r_orig.outcome == r_shuf.outcome
             assert r_orig.reason_code == r_shuf.reason_code
@@ -445,6 +490,7 @@ def test_engine_determinism_under_shuffled_inputs() -> None:
 # ========================================================
 # Hypothesis Property-Based Testing
 # ========================================================
+
 
 @given(
     amount=st.decimals(min_value=-100000, max_value=100000, places=2),

@@ -50,9 +50,7 @@ class InvestigationService:
         )
         inv = self.db.scalars(stmt).first()
         if not inv:
-            raise InvestigationServiceError(
-                f"No active investigation found for claim '{claim_id}'"
-            )
+            raise InvestigationServiceError(f"No active investigation found for claim '{claim_id}'")
         return inv
 
     def assign_investigator(
@@ -179,7 +177,9 @@ class InvestigationService:
         """Escalate an investigation to managerial attention and update claim status to ESCALATED."""
         clean_reason = reason.strip()
         if len(clean_reason) < 5:
-            raise InvestigationValidationError("Escalation reason must be at least 5 characters long")
+            raise InvestigationValidationError(
+                "Escalation reason must be at least 5 characters long"
+            )
 
         investigation = self.get_active_investigation(claim_id)
 

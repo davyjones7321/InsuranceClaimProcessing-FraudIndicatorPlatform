@@ -84,10 +84,7 @@ def metrics(db: Session = Depends(get_db)) -> dict[str, Any]:
     total_claims = db.scalar(select(func.count(Claim.id))) or 0
 
     # Claims grouped by status
-    status_counts_query = (
-        select(Claim.status, func.count(Claim.id))
-        .group_by(Claim.status)
-    )
+    status_counts_query = select(Claim.status, func.count(Claim.id)).group_by(Claim.status)
     status_counts_raw = db.execute(status_counts_query).all()
     claims_by_status = {
         row[0].value if hasattr(row[0], "value") else str(row[0]): row[1]

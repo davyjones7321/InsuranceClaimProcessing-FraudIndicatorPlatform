@@ -14,7 +14,9 @@ class DecisionCreate(BaseModel):
     """Payload for submitting a definitive claim decision."""
 
     decision: DecisionType
-    approved_amount: Annotated[Decimal | None, Field(default=None, decimal_places=2, gt=Decimal("0.00"))] = None
+    approved_amount: Annotated[
+        Decimal | None, Field(default=None, decimal_places=2, gt=Decimal("0.00"))
+    ] = None
     remarks: Annotated[str, Field(min_length=20)]
     reason_codes: list[str] | None = None
 

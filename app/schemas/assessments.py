@@ -18,7 +18,9 @@ class AssessmentCreate(BaseModel):
 
     # Optional manual overrides/additions to coverage parameters
     deductible: Annotated[Decimal | None, Field(default=None, ge=Decimal("0.00"))] = None
-    copay_percent: Annotated[Decimal | None, Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))] = None
+    copay_percent: Annotated[
+        Decimal | None, Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))
+    ] = None
     depreciation: Annotated[Decimal | None, Field(default=None, ge=Decimal("0.00"))] = None
     value_at_risk: Annotated[Decimal | None, Field(default=None, ge=Decimal("0.00"))] = None
 

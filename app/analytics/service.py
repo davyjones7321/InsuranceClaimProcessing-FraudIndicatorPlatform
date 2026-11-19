@@ -124,10 +124,7 @@ class AnalyticsService:
             stmt_time, start_date, end_date, product_type, claim_category, status
         )
         time_rows = self.db.execute(stmt_time).all()
-        volume_over_time = [
-            VolumeOverTime(period=str(d), count=c)
-            for d, c in time_rows
-        ]
+        volume_over_time = [VolumeOverTime(period=str(d), count=c) for d, c in time_rows]
 
         # 4. Processing Time Metrics (registered_at -> decision.created_at)
         proc_stmt = (
@@ -222,17 +219,16 @@ class AnalyticsService:
         )
         val_fail_rows = self.db.execute(val_fail_stmt).all()
         validation_failure_reasons = [
-            ReasonCodeCount(reason_code=str(rc), count=c)
-            for rc, c in val_fail_rows
+            ReasonCodeCount(reason_code=str(rc), count=c) for rc, c in val_fail_rows
         ]
 
         # 7. Risk Metrics (from RiskEvaluation and RiskIndicatorResult)
         risk_eval_stmt = (
             select(
                 func.count(RiskEvaluation.id).label("total_evals"),
-                func.sum(
-                    case((RiskEvaluation.requires_investigation.is_(True), 1), else_=0)
-                ).label("flagged_evals"),
+                func.sum(case((RiskEvaluation.requires_investigation.is_(True), 1), else_=0)).label(
+                    "flagged_evals"
+                ),
             )
             .join(Claim, RiskEvaluation.claim_id == Claim.id)
             .join(Policy, Claim.policy_id == Policy.id)
@@ -255,10 +251,7 @@ class AnalyticsService:
             cat_dist_stmt, start_date, end_date, product_type, claim_category, status
         )
         cat_dist_rows = self.db.execute(cat_dist_stmt).all()
-        cat_dist = {
-            c.value if hasattr(c, "value") else str(c): cnt
-            for c, cnt in cat_dist_rows
-        }
+        cat_dist = {c.value if hasattr(c, "value") else str(c): cnt for c, cnt in cat_dist_rows}
 
         ind_freq_stmt = (
             select(RiskIndicatorResult.indicator_id, func.count(RiskIndicatorResult.id))
@@ -315,10 +308,7 @@ class AnalyticsService:
             inv_outcomes_stmt, start_date, end_date, product_type, claim_category, status
         )
         outcome_rows = self.db.execute(inv_outcomes_stmt).all()
-        outcomes_dist = {
-            o.value if hasattr(o, "value") else str(o): cnt
-            for o, cnt in outcome_rows
-        }
+        outcomes_dist = {o.value if hasattr(o, "value") else str(o): cnt for o, cnt in outcome_rows}
 
         # Investigation durations
         inv_dur_stmt = (
@@ -353,12 +343,9 @@ class AnalyticsService:
         )
 
         # 9. Financial Metrics (Requested vs Approved)
-        fin_stmt = (
-            select(
-                func.coalesce(func.sum(Claim.requested_amount), Decimal("0.00")),
-            )
-            .join(Policy, Claim.policy_id == Policy.id)
-        )
+        fin_stmt = select(
+            func.coalesce(func.sum(Claim.requested_amount), Decimal("0.00")),
+        ).join(Policy, Claim.policy_id == Policy.id)
         fin_stmt = self._apply_claim_filters(
             fin_stmt, start_date, end_date, product_type, claim_category, status
         )
@@ -380,7 +367,10 @@ class AnalyticsService:
 
         # Per product requested and approved
         prod_req_stmt = (
-            select(Policy.product_type, func.coalesce(func.sum(Claim.requested_amount), Decimal("0.00")))
+            select(
+                Policy.product_type,
+                func.coalesce(func.sum(Claim.requested_amount), Decimal("0.00")),
+            )
             .join(Policy, Claim.policy_id == Policy.id)
             .group_by(Policy.product_type)
         )
@@ -390,7 +380,10 @@ class AnalyticsService:
         prod_req_rows = self.db.execute(prod_req_stmt).all()
 
         prod_app_stmt = (
-            select(Policy.product_type, func.coalesce(func.sum(Decision.approved_amount), Decimal("0.00")))
+            select(
+                Policy.product_type,
+                func.coalesce(func.sum(Decision.approved_amount), Decimal("0.00")),
+            )
             .join(Claim, Decision.claim_id == Claim.id)
             .join(Policy, Claim.policy_id == Policy.id)
             .where(Decision.decision == DecisionType.APPROVED)
@@ -426,8 +419,7 @@ class AnalyticsService:
         )
         backlog_rows = self.db.execute(backlog_stmt).all()
         by_status_backlog = {
-            s.value if hasattr(s, "value") else str(s): cnt
-            for s, cnt in backlog_rows
+            s.value if hasattr(s, "value") else str(s): cnt for s, cnt in backlog_rows
         }
         total_backlog = sum(by_status_backlog.values())
 

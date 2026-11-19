@@ -252,7 +252,9 @@ class DecisionService:
             claim_id=claim.id,
             event_data={
                 "decision": payload.decision.value,
-                "approved_amount": str(payload.approved_amount) if payload.approved_amount else None,
+                "approved_amount": str(payload.approved_amount)
+                if payload.approved_amount
+                else None,
                 "reason_codes": payload.reason_codes,
                 "remarks": clean_remarks,
             },

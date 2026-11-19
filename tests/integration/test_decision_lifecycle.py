@@ -241,7 +241,9 @@ def test_rejected_decision_requires_allowed_reason_codes(
         "remarks": "Claim rejected due to non-standard unknown factor.",
         "reason_codes": ["BOGUS_UNKNOWN_REASON"],
     }
-    resp = client.post(f"/api/claims/{claim.id}/decisions", json=payload_invalid_code, headers=headers)
+    resp = client.post(
+        f"/api/claims/{claim.id}/decisions", json=payload_invalid_code, headers=headers
+    )
     assert resp.status_code == 400
     assert "not in the allowed rejection reasons" in resp.json()["detail"]
 
@@ -362,7 +364,9 @@ def test_manager_threshold_enforced(
     }
 
     # Staff attempt blocked
-    resp = client.post(f"/api/claims/{claim.id}/decisions", json=payload_high, headers=staff_headers)
+    resp = client.post(
+        f"/api/claims/{claim.id}/decisions", json=payload_high, headers=staff_headers
+    )
     assert resp.status_code == 403
     assert "exceeds staff threshold" in resp.json()["detail"]
 

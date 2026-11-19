@@ -111,7 +111,9 @@ def test_analytics_csv_export(client: TestClient, db_session: Session) -> None:
     resp = client.get("/api/analytics/export", headers=headers)
     assert resp.status_code == 200
     assert "text/csv" in resp.headers["content-type"]
-    assert 'attachment; filename="claims_analytics_export.csv"' in resp.headers["content-disposition"]
+    assert (
+        'attachment; filename="claims_analytics_export.csv"' in resp.headers["content-disposition"]
+    )
 
     reader = csv.reader(io.StringIO(resp.text))
     rows = list(reader)
@@ -131,7 +133,9 @@ def test_analytics_rbac_restrictions(client: TestClient, db_session: Session) ->
     customer = db_session.scalars(select(User).where(User.role == UserRole.CUSTOMER)).first()
     staff = db_session.scalars(select(User).where(User.role == UserRole.STAFF)).first()
     assessor = db_session.scalars(select(User).where(User.role == UserRole.ASSESSOR)).first()
-    investigator = db_session.scalars(select(User).where(User.role == UserRole.INVESTIGATOR)).first()
+    investigator = db_session.scalars(
+        select(User).where(User.role == UserRole.INVESTIGATOR)
+    ).first()
     admin = db_session.scalars(select(User).where(User.role == UserRole.ADMIN)).first()
 
     assert customer and staff and assessor and investigator and admin

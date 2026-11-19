@@ -27,7 +27,9 @@ def get_analytics_dashboard(
     end_date: date | None = Query(default=None, description="Latest registration date"),
     product_type: ProductType | None = Query(default=None, description="Filter by product line"),
     claim_category: str | None = Query(default=None, description="Filter by claim category"),
-    claim_status: ClaimStatus | None = Query(default=None, alias="status", description="Filter by claim status"),
+    claim_status: ClaimStatus | None = Query(
+        default=None, alias="status", description="Filter by claim status"
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> AnalyticsDashboardResponse:
@@ -53,7 +55,9 @@ def export_analytics_csv(
     end_date: date | None = Query(default=None, description="Latest registration date"),
     product_type: ProductType | None = Query(default=None, description="Filter by product line"),
     claim_category: str | None = Query(default=None, description="Filter by claim category"),
-    claim_status: ClaimStatus | None = Query(default=None, alias="status", description="Filter by claim status"),
+    claim_status: ClaimStatus | None = Query(
+        default=None, alias="status", description="Filter by claim status"
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:

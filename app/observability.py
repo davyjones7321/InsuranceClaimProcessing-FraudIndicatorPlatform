@@ -8,7 +8,10 @@ from typing import Any
 
 EMAIL_PATTERN = re.compile(r"\b([a-zA-Z0-9_.+-])[a-zA-Z0-9_.+-]*@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b")
 PHONE_PATTERN = re.compile(r"\b(\+?\d{1,3}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)(\d{3})[-.\s]?(\d{4})\b")
-SECRET_KEY_PATTERN = re.compile(r"(password|secret|token|api_key|authorization)[\"']?\s*[:=]\s*[\"']?([^\"'\s,]+)", re.IGNORECASE)
+SECRET_KEY_PATTERN = re.compile(
+    r"(password|secret|token|api_key|authorization)[\"']?\s*[:=]\s*[\"']?([^\"'\s,]+)",
+    re.IGNORECASE,
+)
 
 
 def mask_pii(text: str) -> str:

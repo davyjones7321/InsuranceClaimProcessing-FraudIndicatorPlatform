@@ -119,7 +119,9 @@ def run_benchmark(db: Session, target_rows: int = 100_000) -> dict[str, float]:
                     "id": uuid.uuid4(),
                     "claim_id": cid,
                     "decided_by": user_id,
-                    "decision": DecisionType.APPROVED if c_status == ClaimStatus.APPROVED else DecisionType.REJECTED,
+                    "decision": DecisionType.APPROVED
+                    if c_status == ClaimStatus.APPROVED
+                    else DecisionType.REJECTED,
                     "approved_amount": req_amt if c_status == ClaimStatus.APPROVED else None,
                     "remarks": "Benchmark synthetic decision remarks text over 20 chars.",
                     "reason_codes": ["EXCLUDED"] if c_status == ClaimStatus.REJECTED else None,

@@ -106,6 +106,7 @@ def make_risk_input(
 # Unit Tests for Individual Risk Indicators R01 - R10
 # ========================================================
 
+
 def test_r01_repeated_claims_by_customer() -> None:
     eval_d = date(2026, 6, 20)
 
@@ -300,7 +301,9 @@ def test_r06_late_in_policy_claim() -> None:
 
 def test_r07_duplicate_suspicion() -> None:
     inc_date = date(2026, 5, 10)
-    current_claim = make_clean_claim_input(incident_date=inc_date, requested_amount=Decimal("10000.00"))
+    current_claim = make_clean_claim_input(
+        incident_date=inc_date, requested_amount=Decimal("10000.00")
+    )
 
     # Prior claim on same policy, same date, amount 10,400 (4% difference, <= 5%) -> Triggered (weight 30)
     hist_dup = (
@@ -353,7 +356,9 @@ def test_r08_inconsistent_document_data() -> None:
         ),
     )
     inp_mismatch = make_risk_input(customer_name="Alice Smith", documents=mismatch_docs)
-    r08_mis = next(r for r in evaluate_risk(inp_mismatch).indicator_results if r.indicator_id == "R08")
+    r08_mis = next(
+        r for r in evaluate_risk(inp_mismatch).indicator_results if r.indicator_id == "R08"
+    )
     assert r08_mis.triggered
     assert r08_mis.weight_applied == 20
 
@@ -382,20 +387,26 @@ def test_r08_inconsistent_document_data() -> None:
         ),
     )
     inp_inv = make_risk_input(customer_name="Alice Smith", documents=invalid_docs)
-    assert not next(r for r in evaluate_risk(inp_inv).indicator_results if r.indicator_id == "R08").triggered
+    assert not next(
+        r for r in evaluate_risk(inp_inv).indicator_results if r.indicator_id == "R08"
+    ).triggered
 
 
 def test_r09_late_filing() -> None:
     inc_date = date(2026, 5, 1)
 
     # 15 days: Untriggered
-    clm_15 = make_clean_claim_input(incident_date=inc_date, registered_date=inc_date + timedelta(days=15))
+    clm_15 = make_clean_claim_input(
+        incident_date=inc_date, registered_date=inc_date + timedelta(days=15)
+    )
     inp_15 = make_risk_input(claim=clm_15)
     r09_15 = next(r for r in evaluate_risk(inp_15).indicator_results if r.indicator_id == "R09")
     assert not r09_15.triggered
 
     # 16 days: Triggered (weight 5)
-    clm_16 = make_clean_claim_input(incident_date=inc_date, registered_date=inc_date + timedelta(days=16))
+    clm_16 = make_clean_claim_input(
+        incident_date=inc_date, registered_date=inc_date + timedelta(days=16)
+    )
     inp_16 = make_risk_input(claim=clm_16)
     r09_16 = next(r for r in evaluate_risk(inp_16).indicator_results if r.indicator_id == "R09")
     assert r09_16.triggered
@@ -405,11 +416,15 @@ def test_r09_late_filing() -> None:
 def test_r10_round_number_amount() -> None:
     # 40,000 (multiple of 10,000, but < 50,000) -> Untriggered
     inp_40k = make_risk_input(claim=make_clean_claim_input(requested_amount=Decimal("40000.00")))
-    assert not next(r for r in evaluate_risk(inp_40k).indicator_results if r.indicator_id == "R10").triggered
+    assert not next(
+        r for r in evaluate_risk(inp_40k).indicator_results if r.indicator_id == "R10"
+    ).triggered
 
     # 55,000 (>= 50,000, but not multiple of 10,000) -> Untriggered
     inp_55k = make_risk_input(claim=make_clean_claim_input(requested_amount=Decimal("55000.00")))
-    assert not next(r for r in evaluate_risk(inp_55k).indicator_results if r.indicator_id == "R10").triggered
+    assert not next(
+        r for r in evaluate_risk(inp_55k).indicator_results if r.indicator_id == "R10"
+    ).triggered
 
     # 50,000 (exact boundary >= 50,000 and multiple of 10,000) -> Triggered (weight 5)
     inp_50k = make_risk_input(claim=make_clean_claim_input(requested_amount=Decimal("50000.00")))
@@ -421,6 +436,7 @@ def test_r10_round_number_amount() -> None:
 # ========================================================
 # Score Aggregation, Categories, and Invariance Tests
 # ========================================================
+
 
 def test_risk_score_categories_and_routing() -> None:
     # Clean claim: score 0 -> LOW, requires_investigation = False
@@ -533,7 +549,9 @@ def test_risk_engine_determinism_under_shuffled_inputs() -> None:
         assert shuf_out.category == base_out.category
         assert shuf_out.requires_investigation == base_out.requires_investigation
 
-        for r_orig, r_shuf in zip(base_out.indicator_results, shuf_out.indicator_results, strict=True):
+        for r_orig, r_shuf in zip(
+            base_out.indicator_results, shuf_out.indicator_results, strict=True
+        ):
             assert r_orig.indicator_id == r_shuf.indicator_id
             assert r_orig.triggered == r_shuf.triggered
             assert r_orig.weight_applied == r_shuf.weight_applied
@@ -542,6 +560,7 @@ def test_risk_engine_determinism_under_shuffled_inputs() -> None:
 # ========================================================
 # Hypothesis Property-Based Testing
 # ========================================================
+
 
 @given(
     amount=st.decimals(min_value=1, max_value=500000, places=2),

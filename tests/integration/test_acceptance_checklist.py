@@ -181,11 +181,21 @@ def acceptance_seed(db_session: Session) -> dict[str, Any]:
         consumed_amount=Decimal("0.00"),
     )
 
-    db_session.add_all([
-        cust_a, cust_b, user_cust_a, user_cust_b, user_staff,
-        user_assessor, user_manager, policy_a, policy_b,
-        cov_a, cov_b,
-    ])
+    db_session.add_all(
+        [
+            cust_a,
+            cust_b,
+            user_cust_a,
+            user_cust_b,
+            user_staff,
+            user_assessor,
+            user_manager,
+            policy_a,
+            policy_b,
+            cov_a,
+            cov_b,
+        ]
+    )
     db_session.commit()
 
     return {
@@ -304,49 +314,100 @@ def test_acceptance_03_all_validation_rules_failing_examples() -> None:
 
     # V01: policy missing
     v01_in = ValidationInput(
-        claim=base_claim, policy=None, coverages=(base_cov,), exclusions=(),
-        documents=(base_doc,), required_document_types=(base_req_doc,),
-        evaluation_date=eval_date, ruleset=ACTIVE_RULESET,
+        claim=base_claim,
+        policy=None,
+        coverages=(base_cov,),
+        exclusions=(),
+        documents=(base_doc,),
+        required_document_types=(base_req_doc,),
+        evaluation_date=eval_date,
+        ruleset=ACTIVE_RULESET,
     )
-    assert any(r.rule_id == "V01" and r.outcome == RuleOutcomeEnum.FAIL for r in evaluate_validation(v01_in).rule_results)
+    assert any(
+        r.rule_id == "V01" and r.outcome == RuleOutcomeEnum.FAIL
+        for r in evaluate_validation(v01_in).rule_results
+    )
 
     # V02: policy not active
     v02_pol = PolicyInput(
-        policy_id="pol-1", policy_no="POL-1", customer_id="cust-1", product_type="HEALTH",
-        start_date=date(2025, 1, 1), end_date=date(2027, 1, 1), status="LAPSED",
+        policy_id="pol-1",
+        policy_no="POL-1",
+        customer_id="cust-1",
+        product_type="HEALTH",
+        start_date=date(2025, 1, 1),
+        end_date=date(2027, 1, 1),
+        status="LAPSED",
     )
     v02_in = ValidationInput(
-        claim=base_claim, policy=v02_pol, coverages=(base_cov,), exclusions=(),
-        documents=(base_doc,), required_document_types=(base_req_doc,),
-        evaluation_date=eval_date, ruleset=ACTIVE_RULESET,
+        claim=base_claim,
+        policy=v02_pol,
+        coverages=(base_cov,),
+        exclusions=(),
+        documents=(base_doc,),
+        required_document_types=(base_req_doc,),
+        evaluation_date=eval_date,
+        ruleset=ACTIVE_RULESET,
     )
-    assert any(r.rule_id == "V02" and r.outcome == RuleOutcomeEnum.FAIL for r in evaluate_validation(v02_in).rule_results)
+    assert any(
+        r.rule_id == "V02" and r.outcome == RuleOutcomeEnum.FAIL
+        for r in evaluate_validation(v02_in).rule_results
+    )
 
     # V03: incident outside policy period
     v03_claim = ClaimInput(
-        claim_id="clm-base", claim_ref="CLM-BASE", customer_id="cust-1", policy_id="pol-1",
-        claim_category="CAT_1", incident_date=date(2024, 1, 1), incident_location="Hospital",
-        incident_description="Valid", requested_amount=Decimal("1500.00"), registered_date=date(2026, 3, 10),
+        claim_id="clm-base",
+        claim_ref="CLM-BASE",
+        customer_id="cust-1",
+        policy_id="pol-1",
+        claim_category="CAT_1",
+        incident_date=date(2024, 1, 1),
+        incident_location="Hospital",
+        incident_description="Valid",
+        requested_amount=Decimal("1500.00"),
+        registered_date=date(2026, 3, 10),
     )
     v03_in = ValidationInput(
-        claim=v03_claim, policy=base_policy, coverages=(base_cov,), exclusions=(),
-        documents=(base_doc,), required_document_types=(base_req_doc,),
-        evaluation_date=eval_date, ruleset=ACTIVE_RULESET,
+        claim=v03_claim,
+        policy=base_policy,
+        coverages=(base_cov,),
+        exclusions=(),
+        documents=(base_doc,),
+        required_document_types=(base_req_doc,),
+        evaluation_date=eval_date,
+        ruleset=ACTIVE_RULESET,
     )
-    assert any(r.rule_id == "V03" and r.outcome == RuleOutcomeEnum.FAIL for r in evaluate_validation(v03_in).rule_results)
+    assert any(
+        r.rule_id == "V03" and r.outcome == RuleOutcomeEnum.FAIL
+        for r in evaluate_validation(v03_in).rule_results
+    )
 
     # V10: non-positive requested amount
     v10_claim = ClaimInput(
-        claim_id="clm-base", claim_ref="CLM-BASE", customer_id="cust-1", policy_id="pol-1",
-        claim_category="CAT_1", incident_date=date(2026, 3, 1), incident_location="Hospital",
-        incident_description="Valid", requested_amount=Decimal("-50.00"), registered_date=date(2026, 3, 10),
+        claim_id="clm-base",
+        claim_ref="CLM-BASE",
+        customer_id="cust-1",
+        policy_id="pol-1",
+        claim_category="CAT_1",
+        incident_date=date(2026, 3, 1),
+        incident_location="Hospital",
+        incident_description="Valid",
+        requested_amount=Decimal("-50.00"),
+        registered_date=date(2026, 3, 10),
     )
     v10_in = ValidationInput(
-        claim=v10_claim, policy=base_policy, coverages=(base_cov,), exclusions=(),
-        documents=(base_doc,), required_document_types=(base_req_doc,),
-        evaluation_date=eval_date, ruleset=ACTIVE_RULESET,
+        claim=v10_claim,
+        policy=base_policy,
+        coverages=(base_cov,),
+        exclusions=(),
+        documents=(base_doc,),
+        required_document_types=(base_req_doc,),
+        evaluation_date=eval_date,
+        ruleset=ACTIVE_RULESET,
     )
-    assert any(r.rule_id == "V10" and r.outcome == RuleOutcomeEnum.FAIL for r in evaluate_validation(v10_in).rule_results)
+    assert any(
+        r.rule_id == "V10" and r.outcome == RuleOutcomeEnum.FAIL
+        for r in evaluate_validation(v10_in).rule_results
+    )
 
 
 # =========================================================================
@@ -700,7 +761,9 @@ def test_acceptance_11_cross_customer_access_blocked(
 # =========================================================================
 # Acceptance Item 12: Analytics numbers match dataset
 # =========================================================================
-def test_acceptance_12_analytics_aggregates(db_session: Session, acceptance_seed: dict[str, Any]) -> None:
+def test_acceptance_12_analytics_aggregates(
+    db_session: Session, acceptance_seed: dict[str, Any]
+) -> None:
     service = AnalyticsService(db_session)
     metrics = service.get_dashboard_metrics()
     assert metrics is not None
