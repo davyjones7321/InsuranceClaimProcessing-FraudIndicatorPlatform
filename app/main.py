@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 
 from app.api.auth import router as auth_router
+from app.api.claims import router as claims_router
 from app.api.coverages import router as coverages_router
 from app.api.customers import router as customers_router
 from app.api.health import router as health_router
@@ -57,3 +58,4 @@ app.include_router(policies_router)
 app.include_router(coverages_router)
 app.include_router(required_documents_router)
 app.include_router(master_data_import_router)
+app.include_router(claims_router)

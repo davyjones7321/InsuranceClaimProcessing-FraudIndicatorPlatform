@@ -1,5 +1,15 @@
 """Pydantic schemas package."""
 
+from app.schemas.claims import (
+    ClaimCreate,
+    ClaimResponse,
+    ClaimStatusHistoryResponse,
+    ClaimStatusTransitionRequest,
+)
+from app.schemas.documents import (
+    DocumentResponse,
+    DocumentReviewRequest,
+)
 from app.schemas.master_data import (
     CoverageCreate,
     CoverageResponse,
@@ -22,12 +32,18 @@ from app.schemas.master_data import (
 )
 
 __all__ = [
+    "ClaimCreate",
+    "ClaimResponse",
+    "ClaimStatusHistoryResponse",
+    "ClaimStatusTransitionRequest",
     "CoverageCreate",
     "CoverageResponse",
     "CoverageUpdate",
     "CustomerCreate",
     "CustomerResponse",
     "CustomerUpdate",
+    "DocumentResponse",
+    "DocumentReviewRequest",
     "ExclusionCreate",
     "ExclusionResponse",
     "ImportSummary",
