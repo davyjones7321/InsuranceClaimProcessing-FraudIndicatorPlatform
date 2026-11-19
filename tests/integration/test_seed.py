@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import (
     AuditLog,
+    Claim,
     Coverage,
     Customer,
     Exclusion,
@@ -15,7 +16,7 @@ from app.db.models import (
     RequiredDocumentType,
     User,
 )
-from app.domain.enums import PolicyStatus, ProductType, UserRole
+from app.domain.enums import ClaimStatus, PolicyStatus, ProductType, UserRole
 from scripts.seed import seed_database
 
 
@@ -67,12 +68,36 @@ def test_seed_database_creates_all_expected_records(db_session: Session) -> None
     doc_types_count = db_session.scalar(select(func.count(RequiredDocumentType.id)))
     assert doc_types_count and doc_types_count >= 10
 
-    # 7. Verify Audit log recorded
+    # 7. Verify Historical Claims (200+ across all statuses)
+    claim_count = db_session.scalar(select(func.count(Claim.id)))
+    assert claim_count and claim_count >= 200
+
+    claim_statuses = set(db_session.scalars(select(Claim.status)).all())
+    expected_claim_statuses = {
+        ClaimStatus.REGISTERED,
+        ClaimStatus.DOCUMENTS_PENDING,
+        ClaimStatus.VALIDATION_FAILED,
+        ClaimStatus.VALIDATED,
+        ClaimStatus.RISK_EVALUATED,
+        ClaimStatus.UNDER_INVESTIGATION,
+        ClaimStatus.ESCALATED,
+        ClaimStatus.INVESTIGATION_COMPLETE,
+        ClaimStatus.READY_FOR_ASSESSMENT,
+        ClaimStatus.ASSESSED,
+        ClaimStatus.APPROVED,
+        ClaimStatus.REJECTED,
+        ClaimStatus.INFO_REQUESTED,
+        ClaimStatus.WITHDRAWN,
+    }
+    assert expected_claim_statuses.issubset(claim_statuses)
+
+    # 8. Verify Audit log recorded
     seed_audit = db_session.scalars(
         select(AuditLog).where(AuditLog.action == "SEED_DATABASE")
     ).first()
     assert seed_audit is not None
     assert seed_audit.event_data["customers_count"] == 25
+
 
 
 def test_seed_database_is_idempotent(db_session: Session) -> None:

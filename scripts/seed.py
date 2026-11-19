@@ -7,25 +7,48 @@ coverages, exclusions, insured items, and required document configurations.
 
 import sys
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.audit.writer import write_audit_log
 from app.config import settings
 from app.db.models import (
+    Assessment,
+    Claim,
     Coverage,
     Customer,
+    Decision,
     Exclusion,
+    Investigation,
+    InvestigationFinding,
     Policy,
     PolicyInsuredItem,
     RequiredDocumentType,
+    RiskEvaluation,
+    RiskIndicatorResult,
     User,
+    ValidationResult,
+    ValidationRun,
 )
 from app.db.session import SessionLocal
-from app.domain.enums import LimitScope, PolicyStatus, ProductType, UserRole
+from app.domain.enums import (
+    ClaimChannel,
+    ClaimStatus,
+    DecisionType,
+    IndicatorStatus,
+    InvestigationOutcome,
+    InvestigationStatus,
+    LimitScope,
+    PolicyStatus,
+    ProductType,
+    RiskCategory,
+    RuleOutcome,
+    UserRole,
+    ValidationOutcome,
+)
 from app.security.password import hash_password
 
 # Fixed namespace UUID for deterministic IDs
@@ -426,6 +449,299 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
             )
 
     db.flush()
+
+    # 6. Historical Claims (230 deterministic records across all statuses)
+    existing_claim_count = db.scalar(select(func.count(Claim.id))) or 0
+    if existing_claim_count < 200:
+        all_policies = list(db.scalars(select(Policy)).all())
+        staff_user = db.scalars(select(User).where(User.role == UserRole.STAFF)).first()
+        assessor_user = db.scalars(select(User).where(User.role == UserRole.ASSESSOR)).first()
+        investigator_user = db.scalars(select(User).where(User.role == UserRole.INVESTIGATOR)).first()
+        manager_user = db.scalars(select(User).where(User.role == UserRole.MANAGER)).first()
+        admin_user = db.scalars(select(User).where(User.role == UserRole.ADMIN)).first()
+        fallback_actor_id = admin_user.id if admin_user else seed_uuid("system_actor")
+        staff_id = staff_user.id if staff_user else fallback_actor_id
+        assessor_id = assessor_user.id if assessor_user else fallback_actor_id
+        investigator_id = investigator_user.id if investigator_user else fallback_actor_id
+        manager_id = manager_user.id if manager_user else fallback_actor_id
+
+        # 230 statuses distribution
+        status_distribution = (
+            [ClaimStatus.REGISTERED] * 20
+            + [ClaimStatus.DOCUMENTS_PENDING] * 15
+            + [ClaimStatus.VALIDATION_FAILED] * 15
+            + [ClaimStatus.VALIDATED] * 15
+            + [ClaimStatus.RISK_EVALUATED] * 15
+            + [ClaimStatus.UNDER_INVESTIGATION] * 20
+            + [ClaimStatus.ESCALATED] * 10
+            + [ClaimStatus.INVESTIGATION_COMPLETE] * 10
+            + [ClaimStatus.READY_FOR_ASSESSMENT] * 20
+            + [ClaimStatus.ASSESSED] * 20
+            + [ClaimStatus.APPROVED] * 35
+            + [ClaimStatus.REJECTED] * 20
+            + [ClaimStatus.INFO_REQUESTED] * 10
+            + [ClaimStatus.WITHDRAWN] * 5
+        )
+
+        categories_by_product = {
+            ProductType.HEALTH: ["HOSPITALIZATION", "SURGERY"],
+            ProductType.VEHICLE: ["ACCIDENTAL_DAMAGE", "THIRD_PARTY"],
+            ProductType.PROPERTY: ["FIRE"],
+        }
+
+        for idx, target_status in enumerate(status_distribution):
+            seq = idx + 1
+            claim_id = seed_uuid(f"seed_claim_{seq}")
+            claim_ref = f"CLM-2026-{seq:06d}"
+            policy = all_policies[idx % len(all_policies)]
+            cats = categories_by_product.get(policy.product_type, ["HOSPITALIZATION"])
+            category = cats[idx % len(cats)]
+
+            # Amount distribution: varying amounts, with multiples of 10,000 >= 50,000 for R10
+            if idx % 7 == 0:
+                amt = Decimal("60000.00")
+            elif idx % 5 == 0:
+                amt = Decimal("80000.00")
+            else:
+                amt = Decimal(str(10000 + (idx * 3500) % 120000)) + Decimal("0.00")
+
+            inc_days_ago = 10 + (idx % 60)
+            incident_d = today - timedelta(days=inc_days_ago)
+            registered_dt = datetime.combine(
+                incident_d + timedelta(days=2 + (idx % 8)), time(10, 0, 0), tzinfo=UTC
+            )
+
+            claim = Claim(
+                id=claim_id,
+                claim_ref=claim_ref,
+                policy_id=policy.id,
+                customer_id=policy.customer_id,
+                claim_category=category,
+                incident_date=incident_d,
+                incident_location=f"Location {policy.customer.state_region}",
+                incident_description=f"Automated deterministic seeded claim event #{seq}",
+                requested_amount=amt,
+                registered_at=registered_dt,
+                registered_by=staff_id,
+                channel=ClaimChannel.STAFF if idx % 2 == 0 else ClaimChannel.CUSTOMER,
+                status=target_status,
+                status_version=4
+                if target_status in (ClaimStatus.ASSESSED, ClaimStatus.APPROVED, ClaimStatus.REJECTED)
+                else 2,
+            )
+            db.add(claim)
+
+            # Validation run
+            if target_status not in (ClaimStatus.REGISTERED, ClaimStatus.DRAFT):
+                v_outcome = (
+                    ValidationOutcome.BLOCKED_DOCS
+                    if target_status == ClaimStatus.DOCUMENTS_PENDING
+                    else (
+                        ValidationOutcome.FAIL
+                        if target_status == ClaimStatus.VALIDATION_FAILED
+                        else ValidationOutcome.PASS
+                    )
+                )
+                v_run_id = seed_uuid(f"val_run_{seq}")
+                val_run = ValidationRun(
+                    id=v_run_id,
+                    claim_id=claim_id,
+                    ruleset_version="v1",
+                    engine_version="1.0.0",
+                    evaluated_on=incident_d + timedelta(days=2),
+                    overall_result=v_outcome,
+                    created_at=registered_dt,
+                )
+                db.add(val_run)
+
+                if v_outcome == ValidationOutcome.FAIL:
+                    db.add(
+                        ValidationResult(
+                            id=seed_uuid(f"val_res_{seq}"),
+                            run_id=v_run_id,
+                            rule_id="V03",
+                            rule_version="1.0",
+                            outcome=RuleOutcome.FAIL,
+                            reason_code="INCIDENT_OUTSIDE_POLICY_PERIOD",
+                            message="Incident date outside active policy period",
+                            inputs_snapshot={},
+                            created_at=registered_dt,
+                        )
+                    )
+                elif v_outcome == ValidationOutcome.BLOCKED_DOCS:
+                    db.add(
+                        ValidationResult(
+                            id=seed_uuid(f"val_res_{seq}"),
+                            run_id=v_run_id,
+                            rule_id="V13",
+                            rule_version="1.0",
+                            outcome=RuleOutcome.FAIL,
+                            reason_code="DOCUMENTS_MISSING",
+                            message="Mandatory documents missing",
+                            inputs_snapshot={},
+                            created_at=registered_dt,
+                        )
+                    )
+
+            # Risk evaluation
+            if target_status in (
+                ClaimStatus.RISK_EVALUATED,
+                ClaimStatus.UNDER_INVESTIGATION,
+                ClaimStatus.ESCALATED,
+                ClaimStatus.INVESTIGATION_COMPLETE,
+                ClaimStatus.READY_FOR_ASSESSMENT,
+                ClaimStatus.ASSESSED,
+                ClaimStatus.APPROVED,
+                ClaimStatus.REJECTED,
+                ClaimStatus.INFO_REQUESTED,
+            ):
+                is_flagged = target_status in (
+                    ClaimStatus.UNDER_INVESTIGATION,
+                    ClaimStatus.ESCALATED,
+                    ClaimStatus.INVESTIGATION_COMPLETE,
+                )
+                r_score = 35 if is_flagged else 10
+                r_cat = RiskCategory.MEDIUM if is_flagged else RiskCategory.LOW
+                r_eval_id = seed_uuid(f"risk_eval_{seq}")
+                db.add(
+                    RiskEvaluation(
+                        id=r_eval_id,
+                        claim_id=claim_id,
+                        ruleset_version="v1",
+                        engine_version="1.0.0",
+                        evaluated_on=incident_d + timedelta(days=2),
+                        score=r_score,
+                        category=r_cat,
+                        requires_investigation=is_flagged,
+                        inputs_snapshot={},
+                        created_at=registered_dt,
+                    )
+                )
+                db.add(
+                    RiskIndicatorResult(
+                        id=seed_uuid(f"risk_ind_{seq}"),
+                        evaluation_id=r_eval_id,
+                        indicator_id="R03" if is_flagged else "R10",
+                        indicator_version="1.0",
+                        triggered=is_flagged,
+                        weight_applied=20 if is_flagged else 0,
+                        evidence={},
+                        message="Risk threshold evaluated",
+                        status=IndicatorStatus.PILOT,
+                        created_at=registered_dt,
+                    )
+                )
+
+            # Investigation records
+            if target_status in (
+                ClaimStatus.UNDER_INVESTIGATION,
+                ClaimStatus.ESCALATED,
+                ClaimStatus.INVESTIGATION_COMPLETE,
+            ):
+                inv_stat = (
+                    InvestigationStatus.ESCALATED
+                    if target_status == ClaimStatus.ESCALATED
+                    else (
+                        InvestigationStatus.COMPLETED
+                        if target_status == ClaimStatus.INVESTIGATION_COMPLETE
+                        else InvestigationStatus.UNDER_REVIEW
+                    )
+                )
+                inv_out = (
+                    InvestigationOutcome.CLEARED
+                    if target_status == ClaimStatus.INVESTIGATION_COMPLETE
+                    else None
+                )
+                inv_id = seed_uuid(f"inv_{seq}")
+                db.add(
+                    Investigation(
+                        id=inv_id,
+                        claim_id=claim_id,
+                        assigned_to=investigator_id,
+                        assigned_by=manager_id,
+                        status=inv_stat,
+                        outcome=inv_out,
+                        opened_at=registered_dt,
+                        closed_at=registered_dt + timedelta(days=3)
+                        if inv_stat == InvestigationStatus.COMPLETED
+                        else None,
+                        created_at=registered_dt,
+                    )
+                )
+                db.add(
+                    InvestigationFinding(
+                        id=seed_uuid(f"inv_find_{seq}"),
+                        investigation_id=inv_id,
+                        author_id=investigator_id,
+                        finding_text=f"Deterministic investigation field evidence gathered for claim #{seq}.",
+                        created_at=registered_dt + timedelta(days=1),
+                    )
+                )
+
+            # Assessment records
+            if target_status in (
+                ClaimStatus.ASSESSED,
+                ClaimStatus.APPROVED,
+                ClaimStatus.REJECTED,
+                ClaimStatus.INFO_REQUESTED,
+            ):
+                eligible = min(amt, Decimal("100000.00"))
+                db.add(
+                    Assessment(
+                        id=seed_uuid(f"assess_{seq}"),
+                        claim_id=claim_id,
+                        assessor_id=assessor_id,
+                        assessed_loss=amt,
+                        max_eligible_amount=eligible,
+                        eligible_amount=eligible,
+                        calculation_trace={"product_type": policy.product_type.value},
+                        remarks=f"Assessment loss calculations verified for claim #{seq}.",
+                        created_at=registered_dt + timedelta(days=3),
+                    )
+                )
+
+            # Decision records
+            if target_status == ClaimStatus.APPROVED:
+                app_amt = min(amt, Decimal("100000.00"))
+                dec_dt = registered_dt + timedelta(days=4)
+                db.add(
+                    Decision(
+                        id=seed_uuid(f"dec_{seq}"),
+                        claim_id=claim_id,
+                        decided_by=manager_id,
+                        decision=DecisionType.APPROVED,
+                        approved_amount=app_amt,
+                        remarks=f"Approved following technical assessment by claims department for claim #{seq}.",
+                        created_at=dec_dt,
+                    )
+                )
+            elif target_status == ClaimStatus.REJECTED:
+                dec_dt = registered_dt + timedelta(days=4)
+                db.add(
+                    Decision(
+                        id=seed_uuid(f"dec_{seq}"),
+                        claim_id=claim_id,
+                        decided_by=manager_id,
+                        decision=DecisionType.REJECTED,
+                        remarks=f"Claim rejected based on confirmed policy terms and exclusions for claim #{seq}.",
+                        reason_codes=["EXCLUDED"],
+                        created_at=dec_dt,
+                    )
+                )
+            elif target_status == ClaimStatus.INFO_REQUESTED:
+                dec_dt = registered_dt + timedelta(days=4)
+                db.add(
+                    Decision(
+                        id=seed_uuid(f"dec_{seq}"),
+                        claim_id=claim_id,
+                        decided_by=staff_id,
+                        decision=DecisionType.INFO_REQUESTED,
+                        remarks=f"Please provide updated incident police report and billing summary for claim #{seq}.",
+                        created_at=dec_dt,
+                    )
+                )
+
+        db.flush()
 
     # Log audit entry on system chain
     admin_user = db.scalars(select(User).where(User.role == UserRole.ADMIN)).first()

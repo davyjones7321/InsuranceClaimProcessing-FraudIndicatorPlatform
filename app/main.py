@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 
+from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.claims import router as claims_router
 from app.api.coverages import router as coverages_router
@@ -59,3 +60,5 @@ app.include_router(coverages_router)
 app.include_router(required_documents_router)
 app.include_router(master_data_import_router)
 app.include_router(claims_router)
+app.include_router(analytics_router)
+
