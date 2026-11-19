@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: claim_platform_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: insurance_claims
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d insurance_claims"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: claim_platform_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: development
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://postgres:postgres_dev_password@db:5432/insurance_claims
+      MIGRATOR_DATABASE_URL: postgresql+psycopg://postgres:postgres_dev_password@db:5432/insurance_claims
+      SECRET_KEY: local-dev-secret-key-32-chars-minimum-length
+      AUDIT_HMAC_KEY: local-dev-audit-hmac-key-32-chars-minimum
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_storage:/app/storage/documents
+
+volumes:
+  pgdata:
+  app_storage:
