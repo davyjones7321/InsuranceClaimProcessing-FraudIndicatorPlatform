@@ -12,3 +12,6 @@
 1. Business Timezone: Set to `Asia/Kolkata` as default configured timezone for evaluation dates, with UTC storage in database.
 2. Currency: Single configured currency code (e.g. INR) enforced across all monetary fields.
 3. Limit Scope: Default `PER_POLICY_PERIOD` for standard coverage limits pending final policy decision.
+4. Decision Remarks Minimum Length: Configured at 20 characters via `MIN_DECISION_REMARKS_LENGTH` in `app/config.py` and enforced via `chk_decision_remarks_min_length` database constraint.
+5. Manager Approval Threshold: Configured at 500,000.00 via `MANAGER_APPROVAL_THRESHOLD` in `app/config.py`. Approval amounts strictly greater than this threshold require the manager or admin role.
+
