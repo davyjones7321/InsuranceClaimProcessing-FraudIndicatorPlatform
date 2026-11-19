@@ -30,6 +30,10 @@ from app.schemas.master_data import (
     RequiredDocumentTypeResponse,
     RequiredDocumentTypeUpdate,
 )
+from app.schemas.risk import (
+    RiskEvaluationResponse,
+    RiskIndicatorResultResponse,
+)
 from app.schemas.validation import (
     ValidationRuleResultResponse,
     ValidationRunResponse,
@@ -60,6 +64,8 @@ __all__ = [
     "RequiredDocumentTypeCreate",
     "RequiredDocumentTypeResponse",
     "RequiredDocumentTypeUpdate",
+    "RiskEvaluationResponse",
+    "RiskIndicatorResultResponse",
     "ValidationRuleResultResponse",
     "ValidationRunResponse",
 ]

@@ -29,6 +29,7 @@ from app.schemas.claims import (
     ClaimStatusTransitionRequest,
 )
 from app.schemas.documents import DocumentResponse, DocumentReviewRequest
+from app.schemas.risk import RiskEvaluationResponse
 from app.schemas.validation import ValidationRunResponse
 from app.security.rbac import (
     check_claim_access,
@@ -43,6 +44,10 @@ from app.services.claim_service import (
 from app.services.document_storage import (
     FileTooLargeError,
     UnsupportedMediaTypeError,
+)
+from app.services.risk_service import (
+    RiskService,
+    RiskServiceError,
 )
 from app.services.validation_service import (
     ValidationService,
@@ -455,3 +460,99 @@ def get_latest_validation_run(
         return ValidationRunResponse.model_validate(run)
     except ValidationServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/evaluate-risk",
+    response_model=RiskEvaluationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Execute deterministic risk indicator engine against validated claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def evaluate_claim_risk(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RiskEvaluationResponse:
+    """Evaluate pure risk indicators R01-R10 and determine investigation routing."""
+    service = RiskService(db)
+    try:
+        eval_run = service.evaluate_claim_risk(claim_id=claim_id, actor=current_user)
+        return RiskEvaluationResponse.model_validate(eval_run)
+    except RiskServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/risk-evaluations",
+    response_model=list[RiskEvaluationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List all risk evaluations for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def list_risk_evaluations(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[RiskEvaluationResponse]:
+    """Retrieve history of risk evaluations for a claim."""
+    service = RiskService(db)
+    try:
+        evals = service.get_risk_evaluations(claim_id=claim_id, actor=current_user)
+        return [RiskEvaluationResponse.model_validate(e) for e in evals]
+    except RiskServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/risk-evaluations/latest",
+    response_model=RiskEvaluationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get latest risk evaluation for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def get_latest_risk_evaluation(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RiskEvaluationResponse:
+    """Retrieve the most recent risk evaluation for a claim."""
+    service = RiskService(db)
+    try:
+        eval_run = service.get_latest_risk_evaluation(claim_id=claim_id, actor=current_user)
+        if not eval_run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No risk evaluations recorded for claim '{claim_id}'",
+            )
+        return RiskEvaluationResponse.model_validate(eval_run)
+    except RiskServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+

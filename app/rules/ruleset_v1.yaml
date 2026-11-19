@@ -58,3 +58,75 @@ validation_rules:
     reason_code_missing: "DOCUMENTS_MISSING"
     reason_code_invalid: "DOCUMENT_INVALID"
     reason_code_pending: "DOCUMENT_PENDING_REVIEW"
+
+risk_thresholds:
+  investigation_score_threshold: 25
+  low_max: 24
+  medium_max: 49
+  high_min: 50
+
+risk_indicators:
+  R01:
+    name: "Repeated claims by customer"
+    version: "1.0"
+    status: "PILOT"
+    weight: 20
+    threshold_claims: 3
+    window_days: 365
+  R02:
+    name: "Repeated claims on policy"
+    version: "1.0"
+    status: "PILOT"
+    weight: 15
+    threshold_claims: 2
+    window_days: 180
+  R03:
+    name: "High amount vs limit"
+    version: "1.0"
+    status: "PILOT"
+    weight: 20
+    limit_ratio_threshold_percent: 80
+  R04:
+    name: "Unusual amount vs peers"
+    version: "1.0"
+    status: "PILOT"
+    weight: 15
+    peer_multiple_threshold: 3
+    min_historical_claims: 10
+  R05:
+    name: "Early claim"
+    version: "1.0"
+    status: "PILOT"
+    weight: 25
+    early_claim_window_days: 30
+  R06:
+    name: "Late-in-policy claim"
+    version: "1.0"
+    status: "PILOT"
+    weight: 10
+    late_policy_window_days: 7
+  R07:
+    name: "Duplicate suspicion"
+    version: "1.0"
+    status: "PILOT"
+    weight: 30
+    amount_variance_percent: 5
+  R08:
+    name: "Inconsistent document data"
+    version: "1.0"
+    status: "PILOT"
+    weight: 20
+  R09:
+    name: "Late filing"
+    version: "1.0"
+    status: "PILOT"
+    weight: 5
+    late_filing_window_days: 15
+  R10:
+    name: "Round-number amount"
+    version: "1.0"
+    status: "PILOT"
+    weight: 5
+    round_multiple: 10000
+    min_amount: 50000
+

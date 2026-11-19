@@ -38,7 +38,13 @@ def load_ruleset_from_string(content: str) -> tuple[dict[str, Any], str]:
 
     _reject_floats(parsed)
 
-    required_keys = {"ruleset_version", "engine_version", "validation_rules"}
+    required_keys = {
+        "ruleset_version",
+        "engine_version",
+        "validation_rules",
+        "risk_indicators",
+        "risk_thresholds",
+    }
     missing = required_keys - set(parsed.keys())
     if missing:
         raise RulesetError(f"Ruleset is missing mandatory top-level keys: {missing}")

@@ -27,6 +27,12 @@ class RuleOutcomeEnum(StrEnum):
     SKIPPED = "SKIPPED"
 
 
+class RiskCategoryEnum(StrEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 @dataclass(frozen=True)
 class ClaimInput:
     claim_id: str
@@ -117,3 +123,56 @@ class ValidationInput:
     required_document_types: tuple[RequiredDocumentTypeInput, ...]
     evaluation_date: date
     ruleset: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class HistoricalClaimInput:
+    claim_id: str
+    claim_ref: str
+    customer_id: str
+    policy_id: str
+    claim_category: str
+    incident_date: date
+    registered_date: date
+    requested_amount: Decimal
+    status: str
+    approved_amount: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class RiskIndicatorResult:
+    indicator_id: str
+    indicator_version: str
+    triggered: bool
+    weight_applied: int
+    evidence: dict[str, Any]
+    message: str
+    status: str  # PILOT, VALIDATED
+    skipped: bool = False
+    skip_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class RiskOutput:
+    ruleset_version: str
+    engine_version: str
+    evaluated_on: date
+    score: int  # 0..100
+    category: RiskCategoryEnum  # LOW, MEDIUM, HIGH
+    requires_investigation: bool
+    indicator_results: list[RiskIndicatorResult]
+
+
+@dataclass(frozen=True)
+class RiskInput:
+    claim: ClaimInput
+    customer_name: str
+    customer_state_region: str | None
+    policy: PolicyInput | None
+    coverage: CoverageInput | None
+    documents: tuple[DocumentInput, ...]
+    historical_claims: tuple[HistoricalClaimInput, ...]
+    peer_approved_amounts: tuple[Decimal, ...]
+    evaluation_date: date
+    ruleset: dict[str, Any]
+

@@ -1,7 +1,7 @@
 """Deterministic engine replay CLI script.
 
-Verifies pure engine determinism by replaying validation runs against database state
-and asserting exact matching outcomes and reason codes.
+Verifies pure engine determinism by replaying validation runs and risk evaluations
+against recorded database states and asserting exact matching outcomes, scores, and reason codes.
 """
 
 import argparse
@@ -11,9 +11,11 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Claim, ValidationRun
+from app.db.models import Claim, RiskEvaluation, ValidationRun
 from app.db.session import SessionLocal
+from app.engine.risk import evaluate_risk
 from app.engine.validation import evaluate_validation
+from app.services.risk_service import RiskService
 from app.services.validation_service import ValidationService
 
 
@@ -78,7 +80,75 @@ def replay_validation_run(
             )
 
     if verbose and not errors:
-        print(f"  [OK] Run {run.id} for Claim {claim.claim_ref}: {run.overall_result.value} ({len(run.results)} rules verified)")
+        print(f"  [OK] ValidationRun {run.id} for Claim {claim.claim_ref}: {run.overall_result.value} ({len(run.results)} rules verified)")
+
+    return len(errors) == 0, errors
+
+
+def replay_risk_evaluation(
+    db: Session, risk_eval: RiskEvaluation, verbose: bool = False
+) -> tuple[bool, list[str]]:
+    """Replay a single stored risk evaluation and verify bit-for-bit determinism."""
+    claim = db.get(Claim, risk_eval.claim_id)
+    if not claim:
+        return False, [f"Claim '{risk_eval.claim_id}' not found for RiskEvaluation '{risk_eval.id}'"]
+
+    service = RiskService(db)
+    risk_input = service.build_risk_input(
+        claim=claim,
+        evaluation_date=risk_eval.evaluated_on,
+    )
+    replayed = evaluate_risk(risk_input)
+
+    errors: list[str] = []
+
+    # Check score
+    if replayed.score != risk_eval.score:
+        errors.append(
+            f"Score mismatch: stored={risk_eval.score}, replayed={replayed.score}"
+        )
+
+    # Check category
+    if replayed.category.value != risk_eval.category.value:
+        errors.append(
+            f"Category mismatch: stored='{risk_eval.category.value}', "
+            f"replayed='{replayed.category.value}'"
+        )
+
+    # Check requires_investigation flag
+    if replayed.requires_investigation != risk_eval.requires_investigation:
+        errors.append(
+            f"requires_investigation mismatch: stored={risk_eval.requires_investigation}, "
+            f"replayed={replayed.requires_investigation}"
+        )
+
+    # Check indicator results
+    stored_inds = {r.indicator_id: r for r in risk_eval.indicator_results}
+    replayed_inds = {r.indicator_id: r for r in replayed.indicator_results}
+
+    all_ind_ids = sorted(set(stored_inds.keys()) | set(replayed_inds.keys()))
+    for ind_id in all_ind_ids:
+        s_ind = stored_inds.get(ind_id)
+        r_ind = replayed_inds.get(ind_id)
+
+        if not s_ind:
+            errors.append(f"Indicator '{ind_id}' evaluated during replay but was absent in stored evaluation")
+            continue
+        if not r_ind:
+            errors.append(f"Indicator '{ind_id}' was in stored evaluation but was not produced during replay")
+            continue
+
+        if s_ind.triggered != r_ind.triggered:
+            errors.append(
+                f"Indicator '{ind_id}' triggered mismatch: stored={s_ind.triggered}, replayed={r_ind.triggered}"
+            )
+        if s_ind.weight_applied != r_ind.weight_applied:
+            errors.append(
+                f"Indicator '{ind_id}' weight_applied mismatch: stored={s_ind.weight_applied}, replayed={r_ind.weight_applied}"
+            )
+
+    if verbose and not errors:
+        print(f"  [OK] RiskEvaluation {risk_eval.id} for Claim {claim.claim_ref}: score={risk_eval.score}, category={risk_eval.category.value} ({len(risk_eval.indicator_results)} indicators verified)")
 
     return len(errors) == 0, errors
 
@@ -90,12 +160,13 @@ def run_replay(
     db: Session | None = None,
     db_url: str | None = None,
 ) -> int:
-    """Execute replay verification across stored validation runs."""
+    """Execute replay verification across stored validation runs and risk evaluations."""
     own_session = False
     if db is None:
         if db_url:
             from sqlalchemy import create_engine
             from sqlalchemy.orm import sessionmaker
+
             custom_engine = create_engine(db_url)
             session_factory = sessionmaker(bind=custom_engine)
             db = session_factory()
@@ -104,22 +175,29 @@ def run_replay(
         own_session = True
 
     try:
-        stmt = select(ValidationRun).order_by(ValidationRun.created_at.asc())
+        # 1. Validation runs
+        v_stmt = select(ValidationRun).order_by(ValidationRun.created_at.asc())
         if claim_id:
-            stmt = stmt.where(ValidationRun.claim_id == claim_id)
+            v_stmt = v_stmt.where(ValidationRun.claim_id == claim_id)
+        val_runs = list(db.scalars(v_stmt).all())
 
-        runs = list(db.scalars(stmt).all())
-        if not runs:
+        # 2. Risk evaluations
+        r_stmt = select(RiskEvaluation).order_by(RiskEvaluation.created_at.asc())
+        if claim_id:
+            r_stmt = r_stmt.where(RiskEvaluation.claim_id == claim_id)
+        risk_evals = list(db.scalars(r_stmt).all())
+
+        if not val_runs and not risk_evals:
             target = f"for claim '{claim_id}'" if claim_id else "in database"
-            print(f"No validation runs found {target}. Nothing to replay.")
+            print(f"No validation runs or risk evaluations found {target}. Nothing to replay.")
             return 0
 
-        print(f"Starting deterministic replay for {len(runs)} validation run(s)...")
+        print(f"Starting deterministic replay for {len(val_runs)} validation run(s) and {len(risk_evals)} risk evaluation(s)...")
 
         passed_count = 0
         failed_count = 0
 
-        for run in runs:
+        for run in val_runs:
             passed, errs = replay_validation_run(db, run, verbose=verbose)
             if passed:
                 passed_count += 1
@@ -129,10 +207,20 @@ def run_replay(
                 for err in errs:
                     print(f"  - {err}")
 
+        for r_eval in risk_evals:
+            passed, errs = replay_risk_evaluation(db, r_eval, verbose=verbose)
+            if passed:
+                passed_count += 1
+            else:
+                failed_count += 1
+                print(f"\n[FAIL] RiskEvaluation {r_eval.id} (Claim ID: {r_eval.claim_id}):")
+                for err in errs:
+                    print(f"  - {err}")
+
         print("\nReplay Summary:")
-        print(f"  Total Runs:  {len(runs)}")
-        print(f"  Passed:      {passed_count}")
-        print(f"  Failed:      {failed_count}")
+        print(f"  Total Evaluations:  {len(val_runs) + len(risk_evals)}")
+        print(f"  Passed:             {passed_count}")
+        print(f"  Failed:             {failed_count}")
 
         return 0 if failed_count == 0 else 1
     finally:
@@ -146,13 +234,13 @@ def main() -> None:
         "--claim-id",
         type=uuid.UUID,
         default=None,
-        help="Replay validation runs for a specific claim UUID",
+        help="Replay evaluations for a specific claim UUID",
     )
     parser.add_argument(
         "--all",
         action="store_true",
         default=True,
-        help="Replay all recorded validation runs in the database",
+        help="Replay all recorded validation runs and risk evaluations in the database",
     )
     parser.add_argument(
         "--db-url",

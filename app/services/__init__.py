@@ -14,6 +14,10 @@ from app.services.document_storage import (
     default_storage,
 )
 from app.services.import_service import MasterDataImportService
+from app.services.risk_service import (
+    RiskService,
+    RiskServiceError,
+)
 from app.services.validation_service import (
     ValidationService,
     ValidationServiceError,
@@ -26,6 +30,8 @@ __all__ = [
     "FileTooLargeError",
     "LocalDocumentStorage",
     "MasterDataImportService",
+    "RiskService",
+    "RiskServiceError",
     "StaleStatusVersionError",
     "StorageError",
     "UnsupportedMediaTypeError",
