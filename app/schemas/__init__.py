@@ -1,14 +1,30 @@
 """Pydantic schemas package."""
 
+from app.schemas.assessments import (
+    AssessmentCreate,
+    AssessmentResponse,
+)
 from app.schemas.claims import (
     ClaimCreate,
     ClaimResponse,
     ClaimStatusHistoryResponse,
     ClaimStatusTransitionRequest,
 )
+from app.schemas.decisions import (
+    DecisionCreate,
+    DecisionResponse,
+)
 from app.schemas.documents import (
     DocumentResponse,
     DocumentReviewRequest,
+)
+from app.schemas.investigations import (
+    InvestigationAssignRequest,
+    InvestigationCompleteRequest,
+    InvestigationEscalateRequest,
+    InvestigationFindingCreate,
+    InvestigationFindingResponse,
+    InvestigationResponse,
 )
 from app.schemas.master_data import (
     CoverageCreate,
@@ -40,6 +56,8 @@ from app.schemas.validation import (
 )
 
 __all__ = [
+    "AssessmentCreate",
+    "AssessmentResponse",
     "ClaimCreate",
     "ClaimResponse",
     "ClaimStatusHistoryResponse",
@@ -50,11 +68,19 @@ __all__ = [
     "CustomerCreate",
     "CustomerResponse",
     "CustomerUpdate",
+    "DecisionCreate",
+    "DecisionResponse",
     "DocumentResponse",
     "DocumentReviewRequest",
     "ExclusionCreate",
     "ExclusionResponse",
     "ImportSummary",
+    "InvestigationAssignRequest",
+    "InvestigationCompleteRequest",
+    "InvestigationEscalateRequest",
+    "InvestigationFindingCreate",
+    "InvestigationFindingResponse",
+    "InvestigationResponse",
     "MasterDataBatchImport",
     "PolicyCreate",
     "PolicyInsuredItemCreate",

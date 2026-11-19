@@ -176,3 +176,25 @@ class RiskInput:
     evaluation_date: date
     ruleset: dict[str, Any]
 
+
+@dataclass(frozen=True)
+class AssessmentInput:
+    product_type: str  # HEALTH, VEHICLE, PROPERTY
+    requested_amount: Decimal
+    remaining_limit: Decimal
+    assessed_loss: Decimal
+    deductible: Decimal = Decimal("0.00")
+    copay_percent: Decimal = Decimal("0.00")
+    depreciation: Decimal = Decimal("0.00")
+    sum_insured: Decimal = Decimal("0.00")
+    value_at_risk: Decimal = Decimal("0.00")
+
+
+@dataclass(frozen=True)
+class AssessmentOutput:
+    product_type: str
+    assessed_loss: Decimal
+    max_eligible_amount: Decimal
+    calculation_trace: dict[str, Any]
+
+

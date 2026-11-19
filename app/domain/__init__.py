@@ -1,5 +1,6 @@
 """Domain models, enums, and state machine."""
 
+from app.domain.constants import ALLOWED_REJECTION_REASON_CODES
 from app.domain.enums import (
     AuditAction,
     ClaimChannel,
@@ -27,6 +28,7 @@ from app.domain.state_machine import (
 )
 
 __all__ = [
+    "ALLOWED_REJECTION_REASON_CODES",
     "ALLOWED_TRANSITIONS",
     "FINAL_STATES",
     "AuditAction",

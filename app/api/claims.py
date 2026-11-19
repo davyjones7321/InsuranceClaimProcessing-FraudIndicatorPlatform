@@ -22,13 +22,23 @@ from app.db.models import Claim, ClaimDocument, User
 from app.db.session import get_db
 from app.domain.enums import ClaimStatus, UserRole
 from app.domain.state_machine import InvalidStateTransitionError
+from app.schemas.assessments import AssessmentCreate, AssessmentResponse
 from app.schemas.claims import (
     ClaimCreate,
     ClaimResponse,
     ClaimStatusHistoryResponse,
     ClaimStatusTransitionRequest,
 )
+from app.schemas.decisions import DecisionCreate, DecisionResponse
 from app.schemas.documents import DocumentResponse, DocumentReviewRequest
+from app.schemas.investigations import (
+    InvestigationAssignRequest,
+    InvestigationCompleteRequest,
+    InvestigationEscalateRequest,
+    InvestigationFindingCreate,
+    InvestigationFindingResponse,
+    InvestigationResponse,
+)
 from app.schemas.risk import RiskEvaluationResponse
 from app.schemas.validation import ValidationRunResponse
 from app.security.rbac import (
@@ -36,14 +46,32 @@ from app.security.rbac import (
     get_current_user,
     require_roles,
 )
+from app.services.assessment_service import (
+    AssessmentPermissionError,
+    AssessmentService,
+    AssessmentServiceError,
+    AssessmentValidationError,
+)
 from app.services.claim_service import (
     ClaimService,
     ClaimValidationError,
     StaleStatusVersionError,
 )
+from app.services.decision_service import (
+    DecisionPermissionError,
+    DecisionService,
+    DecisionServiceError,
+    DecisionValidationError,
+)
 from app.services.document_storage import (
     FileTooLargeError,
     UnsupportedMediaTypeError,
+)
+from app.services.investigation_service import (
+    InvestigationPermissionError,
+    InvestigationService,
+    InvestigationServiceError,
+    InvestigationValidationError,
 )
 from app.services.risk_service import (
     RiskService,
@@ -555,4 +583,314 @@ def get_latest_risk_evaluation(
         return RiskEvaluationResponse.model_validate(eval_run)
     except RiskServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Assessment endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{claim_id}/assessments",
+    response_model=AssessmentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record assessment calculation and eligible amount",
+    dependencies=[require_roles(UserRole.ASSESSOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def create_assessment(
+    claim_id: uuid.UUID,
+    payload: AssessmentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AssessmentResponse:
+    """Evaluate engine cap, verify separation of duties, and advance claim to ASSESSED."""
+    service = AssessmentService(db)
+    try:
+        assessment = service.create_assessment(
+            claim_id=claim_id,
+            payload=payload,
+            actor=current_user,
+        )
+        return AssessmentResponse.model_validate(assessment)
+    except AssessmentValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AssessmentPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except AssessmentServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/assessments",
+    response_model=list[AssessmentResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List assessments for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def list_assessments(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[AssessmentResponse]:
+    """Retrieve history of assessments for a claim."""
+    service = AssessmentService(db)
+    try:
+        assessments = service.get_assessments(claim_id=claim_id, actor=current_user)
+        return [AssessmentResponse.model_validate(a) for a in assessments]
+    except AssessmentServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Investigation endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{claim_id}/investigations",
+    response_model=list[InvestigationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List investigations and findings for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def list_investigations(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[InvestigationResponse]:
+    """Retrieve all investigations and findings for a claim."""
+    service = InvestigationService(db)
+    try:
+        investigations = service.get_investigations(claim_id=claim_id, actor=current_user)
+        return [InvestigationResponse.model_validate(inv) for inv in investigations]
+    except InvestigationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/investigations/assign",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Assign an investigator to an investigation",
+    dependencies=[require_roles(UserRole.MANAGER, UserRole.ADMIN)],
+)
+def assign_investigator(
+    claim_id: uuid.UUID,
+    payload: InvestigationAssignRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationResponse:
+    """Assign an investigator (Manager or Admin only)."""
+    service = InvestigationService(db)
+    try:
+        inv = service.assign_investigator(
+            claim_id=claim_id,
+            investigator_id=payload.investigator_id,
+            actor=current_user,
+        )
+        return InvestigationResponse.model_validate(inv)
+    except InvestigationValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except InvestigationPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvestigationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/investigations/review",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Start reviewing an active investigation",
+    dependencies=[require_roles(UserRole.INVESTIGATOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def start_investigation_review(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationResponse:
+    """Transition investigation to UNDER_REVIEW."""
+    service = InvestigationService(db)
+    try:
+        inv = service.start_review(claim_id=claim_id, actor=current_user)
+        return InvestigationResponse.model_validate(inv)
+    except InvestigationPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvestigationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/investigations/findings",
+    response_model=InvestigationFindingResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record an append-only finding under an active investigation",
+    dependencies=[require_roles(UserRole.INVESTIGATOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def add_investigation_finding(
+    claim_id: uuid.UUID,
+    payload: InvestigationFindingCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationFindingResponse:
+    """Add a permanent finding to an open investigation."""
+    service = InvestigationService(db)
+    try:
+        finding = service.add_finding(
+            claim_id=claim_id,
+            finding_text=payload.finding_text,
+            actor=current_user,
+        )
+        return InvestigationFindingResponse.model_validate(finding)
+    except InvestigationValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except InvestigationPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvestigationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/investigations/escalate",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Escalate an investigation to management",
+    dependencies=[require_roles(UserRole.INVESTIGATOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def escalate_investigation(
+    claim_id: uuid.UUID,
+    payload: InvestigationEscalateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationResponse:
+    """Escalate investigation and advance claim to ESCALATED status."""
+    service = InvestigationService(db)
+    try:
+        inv = service.escalate_investigation(
+            claim_id=claim_id,
+            reason=payload.reason,
+            actor=current_user,
+        )
+        return InvestigationResponse.model_validate(inv)
+    except InvestigationValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except InvestigationPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvestigationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/investigations/complete",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Conclude investigation with outcome and advance claim to READY_FOR_ASSESSMENT",
+    dependencies=[require_roles(UserRole.INVESTIGATOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def complete_investigation(
+    claim_id: uuid.UUID,
+    payload: InvestigationCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationResponse:
+    """Complete an investigation and route claim to assessment queue."""
+    service = InvestigationService(db)
+    try:
+        inv = service.complete_investigation(
+            claim_id=claim_id,
+            outcome=payload.outcome,
+            actor=current_user,
+            remarks=payload.remarks,
+        )
+        return InvestigationResponse.model_validate(inv)
+    except InvestigationValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except InvestigationPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except InvestigationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Decision endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{claim_id}/decisions",
+    response_model=DecisionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit a definitive claim decision (APPROVED, REJECTED, INFO_REQUESTED)",
+    dependencies=[require_roles(UserRole.STAFF, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def make_claim_decision(
+    claim_id: uuid.UUID,
+    payload: DecisionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DecisionResponse:
+    """Execute a claim decision with separation of duties, threshold checks, and coverage ledger updates."""
+    service = DecisionService(db)
+    try:
+        decision = service.make_decision(
+            claim_id=claim_id,
+            payload=payload,
+            actor=current_user,
+        )
+        return DecisionResponse.model_validate(decision)
+    except DecisionValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except DecisionPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except DecisionServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/decisions",
+    response_model=list[DecisionResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List decisions for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def list_decisions(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[DecisionResponse]:
+    """Retrieve history of decisions for a claim."""
+    service = DecisionService(db)
+    try:
+        decisions = service.get_decisions(claim_id=claim_id, actor=current_user)
+        return [DecisionResponse.model_validate(d) for d in decisions]
+    except DecisionServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
 

@@ -11,9 +11,11 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Claim, RiskEvaluation, ValidationRun
+from app.db.models import Assessment, Claim, Coverage, RiskEvaluation, ValidationRun
 from app.db.session import SessionLocal
+from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.risk import evaluate_risk
+from app.engine.types import AssessmentInput
 from app.engine.validation import evaluate_validation
 from app.services.risk_service import RiskService
 from app.services.validation_service import ValidationService
@@ -153,6 +155,60 @@ def replay_risk_evaluation(
     return len(errors) == 0, errors
 
 
+def replay_assessment(
+    db: Session, assessment: Assessment, verbose: bool = False
+) -> tuple[bool, list[str]]:
+    """Replay a stored assessment cap calculation and verify determinism."""
+    from decimal import Decimal
+
+    claim = db.get(Claim, assessment.claim_id)
+    if not claim:
+        return False, [f"Claim '{assessment.claim_id}' not found for Assessment '{assessment.id}'"]
+
+    policy = claim.policy
+    cov_stmt = select(Coverage).where(
+        Coverage.policy_id == claim.policy_id,
+        Coverage.claim_category == claim.claim_category,
+    )
+    coverage = db.scalars(cov_stmt).first()
+    if not coverage:
+        return False, [f"Coverage row not found for Claim '{claim.claim_ref}'"]
+
+    trace = assessment.calculation_trace or {}
+    remaining_limit = Decimal(trace.get("remaining_limit", str(coverage.limit_amount - coverage.consumed_amount)))
+    deductible = Decimal(trace.get("deductible", str(coverage.deductible)))
+    copay_percent = Decimal(trace.get("copay_percent", str(coverage.copay_percent)))
+    depreciation = Decimal(trace.get("depreciation", "0.00"))
+    sum_insured = Decimal(trace.get("sum_insured", str(policy.sum_insured)))
+    value_at_risk = Decimal(trace.get("value_at_risk", "0.00"))
+
+    inp = AssessmentInput(
+        product_type=policy.product_type.value,
+        requested_amount=claim.requested_amount,
+        remaining_limit=remaining_limit,
+        assessed_loss=assessment.assessed_loss,
+        deductible=deductible,
+        copay_percent=copay_percent,
+        depreciation=depreciation,
+        sum_insured=sum_insured,
+        value_at_risk=value_at_risk,
+    )
+    out = calculate_assessment_cap(inp)
+
+    errors: list[str] = []
+    if out.max_eligible_amount != assessment.max_eligible_amount:
+        errors.append(
+            f"Max eligible amount mismatch: stored='{assessment.max_eligible_amount}', "
+            f"replayed='{out.max_eligible_amount}'"
+        )
+
+    if verbose and not errors:
+        print(f"  [OK] Assessment {assessment.id} for Claim {claim.claim_ref}: max_eligible={assessment.max_eligible_amount}")
+
+    return len(errors) == 0, errors
+
+
+
 def run_replay(
     claim_id: uuid.UUID | None = None,
     all_runs: bool = True,
@@ -187,12 +243,22 @@ def run_replay(
             r_stmt = r_stmt.where(RiskEvaluation.claim_id == claim_id)
         risk_evals = list(db.scalars(r_stmt).all())
 
-        if not val_runs and not risk_evals:
+        # 3. Assessments
+        a_stmt = select(Assessment).order_by(Assessment.created_at.asc())
+        if claim_id:
+            a_stmt = a_stmt.where(Assessment.claim_id == claim_id)
+        assessments = list(db.scalars(a_stmt).all())
+
+        total_runs = len(val_runs) + len(risk_evals) + len(assessments)
+        if total_runs == 0:
             target = f"for claim '{claim_id}'" if claim_id else "in database"
-            print(f"No validation runs or risk evaluations found {target}. Nothing to replay.")
+            print(f"No validation runs, risk evaluations, or assessments found {target}. Nothing to replay.")
             return 0
 
-        print(f"Starting deterministic replay for {len(val_runs)} validation run(s) and {len(risk_evals)} risk evaluation(s)...")
+        print(
+            f"Starting deterministic replay for {len(val_runs)} validation run(s), "
+            f"{len(risk_evals)} risk evaluation(s), and {len(assessments)} assessment(s)..."
+        )
 
         passed_count = 0
         failed_count = 0
@@ -217,8 +283,18 @@ def run_replay(
                 for err in errs:
                     print(f"  - {err}")
 
+        for a_rec in assessments:
+            passed, errs = replay_assessment(db, a_rec, verbose=verbose)
+            if passed:
+                passed_count += 1
+            else:
+                failed_count += 1
+                print(f"\n[FAIL] Assessment {a_rec.id} (Claim ID: {a_rec.claim_id}):")
+                for err in errs:
+                    print(f"  - {err}")
+
         print("\nReplay Summary:")
-        print(f"  Total Evaluations:  {len(val_runs) + len(risk_evals)}")
+        print(f"  Total Evaluations:  {total_runs}")
         print(f"  Passed:             {passed_count}")
         print(f"  Failed:             {failed_count}")
 
