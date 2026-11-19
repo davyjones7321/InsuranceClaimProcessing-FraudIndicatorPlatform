@@ -39,27 +39,31 @@ from scripts.restore_db import restore_database
 
 
 def ensure_drill_source_db(source_url: str | None, temp_dir: Path) -> str:
-    """Ensure a source database exists, creating and seeding a test DB if needed."""
+    """Ensure a source database exists with audit chains, creating and seeding a test DB if needed."""
     if source_url:
         return source_url
 
-    # Check if configured DATABASE_URL is accessible (with fast 2s connect timeout)
-    if "postgresql" in settings.DATABASE_URL:
+    # Check if configured DATABASE_URL has audit chains to verify
+    if settings.DATABASE_URL:
         try:
-            engine = create_engine(
-                settings.DATABASE_URL,
-                connect_args={"connect_timeout": 2},
-            )
-            with engine.connect() as conn:
-                conn.execute(select(1))
+            connect_args = {"connect_timeout": 2} if "postgresql" in settings.DATABASE_URL else {}
+            engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
+            SessionMaker = sessionmaker(bind=engine)
+            with SessionMaker() as session:
+                has_chains = session.scalar(select(func.count(AuditChainHead.chain_key))) or 0
+                if has_chains > 0:
+                    engine.dispose()
+                    return settings.DATABASE_URL
             engine.dispose()
-            return settings.DATABASE_URL
-        except Exception:
             print(
-                "Notice: PostgreSQL server not accessible on localhost. Using dedicated seeded SQLite drill database."
+                "Notice: Configured DATABASE_URL has no audit chains. Using dedicated seeded drill database."
+            )
+        except Exception as e:
+            print(
+                f"Notice: Configured DATABASE_URL check skipped ({e}). Using dedicated seeded drill database."
             )
 
-    # Create and populate a dedicated SQLite source DB
+    # Create and populate a dedicated SQLite source DB with deterministic seed data
     source_sqlite = temp_dir / "drill_source.sqlite"
     source_db_url = f"sqlite:///{source_sqlite}"
     engine = create_engine(source_db_url)
