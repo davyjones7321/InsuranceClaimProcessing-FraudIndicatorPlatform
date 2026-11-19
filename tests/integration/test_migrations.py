@@ -1,9 +1,11 @@
 """Integration test verifying that Alembic migrations apply on an empty DB and cleanly roll back."""
 
 import os
-from alembic import command
+
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
+
+from alembic import command
 
 
 def test_alembic_migrations_upgrade_and_downgrade() -> None:
@@ -41,7 +43,9 @@ def test_alembic_migrations_upgrade_and_downgrade() -> None:
         remaining_tables = set(inspector_after.get_table_names())
         # Only alembic_version might remain after base downgrade
         remaining_business_tables = remaining_tables - {"alembic_version"}
-        assert not remaining_business_tables, f"Tables left after downgrade: {remaining_business_tables}"
+        assert not remaining_business_tables, (
+            f"Tables left after downgrade: {remaining_business_tables}"
+        )
 
         # 3. Upgrade back to head to verify re-apply
         command.upgrade(alembic_cfg, "head")

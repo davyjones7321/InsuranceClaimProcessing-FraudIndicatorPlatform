@@ -3,10 +3,16 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
+
 from fastapi import FastAPI, Request, Response
 
 from app.api.auth import router as auth_router
+from app.api.coverages import router as coverages_router
+from app.api.customers import router as customers_router
 from app.api.health import router as health_router
+from app.api.master_data_import import router as master_data_import_router
+from app.api.policies import router as policies_router
+from app.api.required_documents import router as required_documents_router
 from app.config import settings
 
 
@@ -46,3 +52,8 @@ async def security_headers_middleware(request: Request, call_next: Callable[...,
 # Register API routers
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(customers_router)
+app.include_router(policies_router)
+app.include_router(coverages_router)
+app.include_router(required_documents_router)
+app.include_router(master_data_import_router)
