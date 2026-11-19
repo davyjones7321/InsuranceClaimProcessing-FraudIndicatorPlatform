@@ -1,5 +1,7 @@
 """FastAPI application entrypoint and middleware configuration."""
 
+import time
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -16,6 +18,7 @@ from app.api.master_data_import import router as master_data_import_router
 from app.api.policies import router as policies_router
 from app.api.required_documents import router as required_documents_router
 from app.config import settings
+from app.observability import logger
 
 
 @asynccontextmanager
@@ -34,6 +37,33 @@ app = FastAPI(
     redoc_url="/redoc" if settings.ENV != "production" else None,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
+    """Assign X-Request-ID and emit structured JSON access logs."""
+    start_time = time.perf_counter()
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+
+    response: Response = await call_next(request)
+
+    duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+
+    client_ip = request.client.host if request.client else "unknown"
+    extra_record = {
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": response.status_code,
+        "duration_ms": duration_ms,
+        "client_ip": client_ip,
+    }
+    logger.info(
+        f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms}ms)",
+        extra={"request_id": request_id, "extra_fields": extra_record},
+    )
+    return response
 
 
 @app.middleware("http")
@@ -61,4 +91,3 @@ app.include_router(required_documents_router)
 app.include_router(master_data_import_router)
 app.include_router(claims_router)
 app.include_router(analytics_router)
-
