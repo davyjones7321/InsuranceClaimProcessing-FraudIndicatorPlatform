@@ -14,6 +14,10 @@ from app.services.document_storage import (
     default_storage,
 )
 from app.services.import_service import MasterDataImportService
+from app.services.validation_service import (
+    ValidationService,
+    ValidationServiceError,
+)
 
 __all__ = [
     "ClaimService",
@@ -25,5 +29,7 @@ __all__ = [
     "StaleStatusVersionError",
     "StorageError",
     "UnsupportedMediaTypeError",
+    "ValidationService",
+    "ValidationServiceError",
     "default_storage",
 ]

@@ -1,7 +1,7 @@
 """Claim service managing registration, document lifecycle, and state machine transitions."""
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session

@@ -1,0 +1,60 @@
+# Insurance Claim Platform Business Ruleset v1
+ruleset_version: "v1"
+engine_version: "1.0.0"
+
+# Section A.1: Proposed claim-limit policy (CAP_WITH_WARNING vs REJECT)
+claim_limit_policy: "CAP_WITH_WARNING"
+
+validation_rules:
+  V01:
+    name: "Policy Exists & Belongs"
+    version: "1.0"
+    reason_code_not_found: "POLICY_NOT_FOUND"
+    reason_code_mismatch: "POLICY_OWNER_MISMATCH"
+  V02:
+    name: "Policy Active"
+    version: "1.0"
+    reason_code: "POLICY_NOT_ACTIVE"
+  V03:
+    name: "Incident in Policy Period"
+    version: "1.0"
+    reason_code: "INCIDENT_OUTSIDE_POLICY_PERIOD"
+  V04:
+    name: "Valid Incident Date"
+    version: "1.0"
+    reason_code: "INCIDENT_DATE_INVALID"
+  V05:
+    name: "Filing Window"
+    version: "1.0"
+    filing_window_days: 90
+    reason_code: "FILING_WINDOW_EXCEEDED"
+  V07:
+    name: "Coverage Exists"
+    version: "1.0"
+    reason_code: "NO_COVERAGE"
+  V08:
+    name: "Policy Exclusion Check"
+    version: "1.0"
+    reason_code: "EXCLUDED"
+  V09:
+    name: "Waiting Period"
+    version: "1.0"
+    reason_code: "WAITING_PERIOD_NOT_MET"
+  V10:
+    name: "Positive Requested Amount"
+    version: "1.0"
+    reason_code: "AMOUNT_INVALID"
+  V11:
+    name: "Coverage Limit Check"
+    version: "1.0"
+    reason_code: "LIMIT_EXCEEDED"
+  V12:
+    name: "Mandatory Fields"
+    version: "1.0"
+    reason_code: "MISSING_FIELD"
+  V13:
+    name: "Document Lifecycle"
+    version: "1.0"
+    reason_code_missing: "DOCUMENTS_MISSING"
+    reason_code_invalid: "DOCUMENT_INVALID"
+    reason_code_pending: "DOCUMENT_PENDING_REVIEW"

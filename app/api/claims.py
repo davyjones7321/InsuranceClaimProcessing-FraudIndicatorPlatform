@@ -29,6 +29,7 @@ from app.schemas.claims import (
     ClaimStatusTransitionRequest,
 )
 from app.schemas.documents import DocumentResponse, DocumentReviewRequest
+from app.schemas.validation import ValidationRunResponse
 from app.security.rbac import (
     check_claim_access,
     get_current_user,
@@ -42,6 +43,10 @@ from app.services.claim_service import (
 from app.services.document_storage import (
     FileTooLargeError,
     UnsupportedMediaTypeError,
+)
+from app.services.validation_service import (
+    ValidationService,
+    ValidationServiceError,
 )
 
 router = APIRouter(prefix="/api/claims", tags=["Claims & Documents"])
@@ -355,4 +360,98 @@ def review_claim_document(
         )
         return DocumentResponse.model_validate(doc)
     except ClaimValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/validate",
+    response_model=ValidationRunResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Execute deterministic validation engine against claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def validate_claim(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ValidationRunResponse:
+    """Evaluate pure validation rules V01-V13 deterministically and persist execution run."""
+    service = ValidationService(db)
+    try:
+        run = service.validate_claim(claim_id=claim_id, actor=current_user)
+        return ValidationRunResponse.model_validate(run)
+    except ValidationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/validation-runs",
+    response_model=list[ValidationRunResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List all validation runs for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def list_validation_runs(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ValidationRunResponse]:
+    """Retrieve full history of validation runs for a claim."""
+    service = ValidationService(db)
+    try:
+        runs = service.get_validation_runs(claim_id=claim_id, actor=current_user)
+        return [ValidationRunResponse.model_validate(r) for r in runs]
+    except ValidationServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/validation-runs/latest",
+    response_model=ValidationRunResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get latest validation run for a claim",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def get_latest_validation_run(
+    claim_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ValidationRunResponse:
+    """Retrieve the most recent validation run for a claim."""
+    service = ValidationService(db)
+    try:
+        run = service.get_latest_validation_run(claim_id=claim_id, actor=current_user)
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No validation runs recorded for claim '{claim_id}'",
+            )
+        return ValidationRunResponse.model_validate(run)
+    except ValidationServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

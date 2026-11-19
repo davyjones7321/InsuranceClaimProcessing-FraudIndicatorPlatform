@@ -3,10 +3,9 @@
 ## Open Decisions
 
 ### Claim-Limit Policy (Section A.1)
-- Status: Blocked pending owner approval before Phase 4 (V11) and Phase 6 (Assessment and Approval).
-- Option 1 (Proposed): Allow a claim whose requested amount exceeds the remaining coverage limit, issue a warning, and cap the payable amount at the remaining limit.
-- Option 2: Reject/fail the claim when the request exceeds the remaining limit.
-- Action: Phase 1 foundation will not implement limit checks or ledger modifications until this choice is formally selected.
+- Status: Resolved in Phase 4 via configuration toggle `claim_limit_policy` in `app/rules/ruleset_v1.yaml`.
+- Default Setting: `CAP_WITH_WARNING` (Option 1 proposed design). When requested amount exceeds remaining coverage limit, Rule V11 passes with informational snapshot `limit_warning: true`, deferring transactional capping to assessment/approval.
+- Alternative Setting: `REJECT` (Option 2). When active, Rule V11 fails immediately with reason code `LIMIT_EXCEEDED`. Both behaviors are covered by unit and integration tests.
 
 ## Operational Assumptions
 

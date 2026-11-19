@@ -30,6 +30,10 @@ from app.schemas.master_data import (
     RequiredDocumentTypeResponse,
     RequiredDocumentTypeUpdate,
 )
+from app.schemas.validation import (
+    ValidationRuleResultResponse,
+    ValidationRunResponse,
+)
 
 __all__ = [
     "ClaimCreate",
@@ -56,4 +60,6 @@ __all__ = [
     "RequiredDocumentTypeCreate",
     "RequiredDocumentTypeResponse",
     "RequiredDocumentTypeUpdate",
+    "ValidationRuleResultResponse",
+    "ValidationRunResponse",
 ]
