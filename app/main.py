@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
@@ -19,6 +20,7 @@ from app.api.policies import router as policies_router
 from app.api.required_documents import router as required_documents_router
 from app.config import settings
 from app.observability import logger
+from app.security.csrf import validate_csrf_token
 
 
 @asynccontextmanager
@@ -63,6 +65,30 @@ async def request_logging_middleware(request: Request, call_next: Callable[..., 
         f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms}ms)",
         extra={"request_id": request_id, "extra_fields": extra_record},
     )
+    return response
+
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
+    """Validate CSRF tokens on state-changing cookie-authenticated requests (P1 task 7)."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        path = request.url.path
+        if (
+            not path.startswith("/api/auth/login")
+            and not path.startswith("/health")
+            and not path.startswith("/ready")
+        ):
+            session_cookie = request.cookies.get(settings.SESSION_COOKIE_NAME)
+            if session_cookie:
+                csrf_token = request.headers.get("X-CSRF-Token")
+                if not csrf_token or not validate_csrf_token(session_cookie, csrf_token):
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": "Missing or invalid CSRF token for state-changing request"
+                        },
+                    )
+    response: Response = await call_next(request)
     return response
 
 

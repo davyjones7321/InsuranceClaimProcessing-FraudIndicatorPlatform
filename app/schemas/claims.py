@@ -62,7 +62,7 @@ class ClaimResponse(BaseModel):
     registered_at: datetime
     registered_by: uuid.UUID
     channel: ClaimChannel
-    status: ClaimStatus
+    status: ClaimStatus | str
     status_version: int
     source_system: str | None = None
     external_ref: str | None = None

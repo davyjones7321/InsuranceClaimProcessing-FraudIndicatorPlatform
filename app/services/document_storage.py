@@ -27,6 +27,17 @@ class UnsupportedMediaTypeError(StorageError):
     pass
 
 
+def detect_mime_type_from_signature(content: bytes) -> str | None:
+    """Detect supported file MIME type from magic bytes header."""
+    if content.startswith(b"%PDF"):
+        return "application/pdf"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    return None
+
+
 class DocumentStorage(Protocol):
     """Storage adapter interface for claim document binaries."""
 
@@ -56,13 +67,14 @@ class LocalDocumentStorage:
 
     def _sanitize_extension(self, file_name: str) -> str:
         """Extract and validate clean lowercase extension."""
-        suffix = Path(file_name).suffix.lower()
+        clean_name = os.path.basename(file_name)
+        suffix = Path(clean_name).suffix.lower()
         if suffix in (".pdf", ".jpg", ".jpeg", ".png"):
             return suffix
         return ".bin"
 
     def store(self, file_name: str, content: bytes, mime_type: str) -> tuple[str, str, int]:
-        """Validate content, store securely, and return metadata."""
+        """Validate content, verify magic signature, store securely, and return metadata."""
         size_bytes = len(content)
         if size_bytes > settings.UPLOAD_MAX_SIZE_BYTES:
             raise FileTooLargeError(
@@ -73,6 +85,21 @@ class LocalDocumentStorage:
         if clean_mime not in settings.ALLOWED_UPLOAD_MIME_TYPES:
             raise UnsupportedMediaTypeError(
                 f"MIME type '{mime_type}' is not allowed. Allowed types: {settings.ALLOWED_UPLOAD_MIME_TYPES}"
+            )
+
+        # Detect and verify file signature against declared MIME type (P1 task 6)
+        detected_mime = detect_mime_type_from_signature(content)
+        if not detected_mime:
+            raise UnsupportedMediaTypeError(
+                "File signature not recognized as a supported type (PDF, JPEG, PNG)"
+            )
+
+        normalized_declared = clean_mime
+        if normalized_declared == "image/jpg":
+            normalized_declared = "image/jpeg"
+        if normalized_declared != detected_mime:
+            raise UnsupportedMediaTypeError(
+                f"Declared MIME type '{clean_mime}' does not match detected signature '{detected_mime}'"
             )
 
         # Compute SHA-256 digest

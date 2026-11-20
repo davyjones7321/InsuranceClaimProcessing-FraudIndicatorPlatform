@@ -213,8 +213,15 @@ def test_flagged_claim_routes_to_under_investigation_and_creates_record(
 ) -> None:
     claim: Claim = risk_fixture["claim_early"]
     staff: User = risk_fixture["user_staff"]
+    admin: User = risk_fixture["user_admin"]
 
-    headers = auth_headers(db_session, staff)
+    # 1. Staff is forbidden from evaluating risk per D6
+    staff_headers = auth_headers(db_session, staff)
+    res_staff = client.post(f"/api/claims/{claim.id}/evaluate-risk", headers=staff_headers)
+    assert res_staff.status_code == 403
+
+    # 2. Authorized actor evaluates risk
+    headers = auth_headers(db_session, admin)
     resp = client.post(f"/api/claims/{claim.id}/evaluate-risk", headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -236,7 +243,7 @@ def test_flagged_claim_routes_to_under_investigation_and_creates_record(
     ).first()
     assert inv is not None
     assert inv.status == InvestigationStatus.ASSIGNED
-    assert inv.assigned_by == staff.id
+    assert inv.assigned_by == admin.id
     assert inv.assigned_to is None
 
     # Verify audit chain integrity
@@ -257,24 +264,27 @@ def test_risk_evaluation_api_endpoints_and_scoping(
     resp = client.post(f"/api/claims/{claim.id}/evaluate-risk", headers=admin_headers)
     assert resp.status_code == 200
 
-    # 2. Customer reads their own risk evaluations
+    # 2. Customer attempting to read risk evaluations gets 403 Forbidden (F4 fix, D6)
     cust_headers = auth_headers(db_session, cust)
     resp = client.get(f"/api/claims/{claim.id}/risk-evaluations", headers=cust_headers)
-    assert resp.status_code == 200
-    evals = resp.json()
-    assert len(evals) >= 1
+    assert resp.status_code == 403
 
-    # 3. Customer reads latest risk evaluation
+    # 3. Customer attempting to read latest risk evaluation gets 403 Forbidden
     resp_latest = client.get(
         f"/api/claims/{claim.id}/risk-evaluations/latest", headers=cust_headers
     )
-    assert resp_latest.status_code == 200
-    assert resp_latest.json()["id"] == evals[0]["id"]
+    assert resp_latest.status_code == 403
 
-    # 4. Other customer attempting to view evaluations is forbidden (403)
+    # 4. Other customer attempting to view evaluations is also forbidden (403)
     other_headers = auth_headers(db_session, other_cust)
     resp_forbid = client.get(f"/api/claims/{claim.id}/risk-evaluations", headers=other_headers)
     assert resp_forbid.status_code == 403
+
+    # 5. Admin reads risk evaluations successfully (200)
+    resp_admin = client.get(f"/api/claims/{claim.id}/risk-evaluations", headers=admin_headers)
+    assert resp_admin.status_code == 200
+    evals = resp_admin.json()
+    assert len(evals) >= 1
 
 
 def test_deterministic_replay_on_risk_evaluation(

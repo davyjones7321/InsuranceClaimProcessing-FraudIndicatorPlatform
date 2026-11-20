@@ -363,5 +363,9 @@ class ValidationService:
 
     def get_latest_validation_run(self, claim_id: uuid.UUID, actor: User) -> ValidationRun | None:
         """Retrieve the latest validation run for a claim."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise ValidationServiceError(f"Claim '{claim_id}' not found")
+        check_claim_access(actor, claim)
         runs = self.get_validation_runs(claim_id, actor)
         return runs[0] if runs else None

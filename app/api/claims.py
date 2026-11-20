@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -11,6 +11,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
@@ -18,6 +19,7 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db.models import Claim, ClaimDocument, User
 from app.db.session import get_db
 from app.domain.enums import ClaimStatus, UserRole
@@ -41,6 +43,7 @@ from app.schemas.investigations import (
 )
 from app.schemas.risk import RiskEvaluationResponse
 from app.schemas.validation import ValidationRunResponse
+from app.security.access_log import log_access
 from app.security.rbac import (
     check_claim_access,
     get_current_user,
@@ -85,6 +88,48 @@ from app.services.validation_service import (
 router = APIRouter(prefix="/api/claims", tags=["Claims & Documents"])
 
 
+def serialize_claim_for_user(claim: Claim, user: User) -> ClaimResponse:
+    """Format claim representation with customer investigation masking (P1 task 2, D6)."""
+    resp = ClaimResponse.model_validate(claim)
+    if user.role == UserRole.CUSTOMER and resp.status in (
+        ClaimStatus.UNDER_INVESTIGATION,
+        ClaimStatus.ESCALATED,
+        "UNDER_INVESTIGATION",
+        "ESCALATED",
+    ):
+        resp.status = "UNDER_REVIEW"
+    return resp
+
+
+def serialize_history_for_user(history: list[Any], user: User) -> list[ClaimStatusHistoryResponse]:
+    """Format status history with investigation secrecy for customers (D6)."""
+    results: list[ClaimStatusHistoryResponse] = []
+    for h in history:
+        item = ClaimStatusHistoryResponse.model_validate(h)
+        if user.role == UserRole.CUSTOMER:
+            if item.from_status in ("UNDER_INVESTIGATION", "ESCALATED"):
+                item.from_status = "UNDER_REVIEW"
+            if item.to_status in ("UNDER_INVESTIGATION", "ESCALATED"):
+                item.to_status = "UNDER_REVIEW"
+            if item.reason and (
+                "investigat" in item.reason.lower() or "escalat" in item.reason.lower()
+            ):
+                item.reason = "Claim under review"
+        results.append(item)
+    return results
+
+
+def serialize_risk_evaluation_for_user(eval_run: Any, user: User) -> RiskEvaluationResponse:
+    """Filter risk details per Decision D6."""
+    resp = RiskEvaluationResponse.model_validate(eval_run)
+    if user.role == UserRole.ASSESSOR:
+        # D6: Assessor gets category and completeness only; no indicator evidence
+        resp.indicator_results = []
+        resp.inputs_snapshot = {}
+        resp.score = 0
+    return resp
+
+
 @router.post(
     "",
     response_model=ClaimResponse,
@@ -101,7 +146,7 @@ def register_claim(
     service = ClaimService(db)
     try:
         claim = service.register_claim(payload=payload, actor=current_user)
-        return ClaimResponse.model_validate(claim)
+        return serialize_claim_for_user(claim, current_user)
     except ClaimValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -131,11 +176,12 @@ def list_claims(
     """Retrieve claims with strict object-level access boundaries."""
     stmt = select(Claim)
 
-    # Scoping by role (Section H.87)
+    # Scoping by role (Section H.87, D6, D7)
     if current_user.role == UserRole.CUSTOMER:
         stmt = stmt.where(Claim.customer_id == current_user.customer_id)
     elif current_user.role == UserRole.STAFF:
-        stmt = stmt.where(Claim.registered_by == current_user.id)
+        # D7: Staff see summary for all claims
+        pass
     elif current_user.role == UserRole.INVESTIGATOR:
         # Investigators see only assigned investigations
         stmt = stmt.join(Claim.investigations).where(
@@ -149,7 +195,7 @@ def list_claims(
 
     stmt = stmt.order_by(Claim.registered_at.desc())
     claims = db.scalars(stmt).all()
-    return [ClaimResponse.model_validate(c) for c in claims]
+    return [serialize_claim_for_user(c, current_user) for c in claims]
 
 
 @router.get(
@@ -179,8 +225,19 @@ def get_claim(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Claim '{claim_id}' not found"
         )
-    check_claim_access(current_user, claim)
-    return ClaimResponse.model_validate(claim)
+    check_claim_access(current_user, claim, action="READ_DETAIL")
+
+    # Record access log for non-owner sensitive record views (P1 task 5)
+    if claim.customer_id != current_user.customer_id:
+        log_access(
+            db=db,
+            actor=current_user,
+            claim_id=claim.id,
+            resource_type="CLAIM_DETAIL",
+            action="VIEW",
+        )
+
+    return serialize_claim_for_user(claim, current_user)
 
 
 @router.get(
@@ -210,8 +267,8 @@ def get_claim_history(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Claim '{claim_id}' not found"
         )
-    check_claim_access(current_user, claim)
-    return [ClaimStatusHistoryResponse.model_validate(h) for h in claim.status_history]
+    check_claim_access(current_user, claim, action="READ")
+    return serialize_history_for_user(list(claim.status_history), current_user)
 
 
 @router.patch(
@@ -233,7 +290,7 @@ def transition_claim_status(
     service = ClaimService(db)
     try:
         updated = service.transition_status(claim_id=claim_id, req=payload, actor=current_user)
-        return ClaimResponse.model_validate(updated)
+        return serialize_claim_for_user(updated, current_user)
     except StaleStatusVersionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except InvalidStateTransitionError as exc:
@@ -253,6 +310,7 @@ def transition_claim_status(
 )
 async def upload_document(
     claim_id: uuid.UUID,
+    request: Request,
     doc_code: Annotated[str, Form(min_length=2, max_length=64)],
     file: UploadFile = File(...),
     document_date: Annotated[date | None, Form()] = None,
@@ -261,7 +319,35 @@ async def upload_document(
     db: Session = Depends(get_db),
 ) -> DocumentResponse:
     """Upload and attach a supporting document to a claim with validation and SHA-256 computation."""
-    content = await file.read()
+    # Enforce size while reading per P1 task 6
+    content_length_header = request.headers.get("Content-Length")
+    if content_length_header:
+        try:
+            cl = int(content_length_header)
+            if cl > settings.UPLOAD_MAX_SIZE_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Content-Length {cl} exceeds maximum allowed limit of {settings.UPLOAD_MAX_SIZE_BYTES} bytes",
+                )
+        except ValueError:
+            pass
+
+    content_chunks: list[bytes] = []
+    total_bytes = 0
+    chunk_size = 65536
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > settings.UPLOAD_MAX_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File size exceeds maximum allowed limit of {settings.UPLOAD_MAX_SIZE_BYTES} bytes",
+            )
+        content_chunks.append(chunk)
+
+    content = b"".join(content_chunks)
     service = ClaimService(db)
     try:
         doc = service.upload_document(
@@ -371,9 +457,7 @@ def download_claim_document(
     response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
     summary="Review claim document",
-    dependencies=[
-        require_roles(UserRole.ASSESSOR, UserRole.STAFF, UserRole.MANAGER, UserRole.ADMIN)
-    ],
+    dependencies=[require_roles(UserRole.ASSESSOR, UserRole.MANAGER)],
 )
 def review_claim_document(
     claim_id: uuid.UUID,
@@ -497,8 +581,6 @@ def get_latest_validation_run(
     summary="Execute deterministic risk indicator engine against validated claim",
     dependencies=[
         require_roles(
-            UserRole.CUSTOMER,
-            UserRole.STAFF,
             UserRole.ASSESSOR,
             UserRole.INVESTIGATOR,
             UserRole.MANAGER,
@@ -515,7 +597,7 @@ def evaluate_claim_risk(
     service = RiskService(db)
     try:
         eval_run = service.evaluate_claim_risk(claim_id=claim_id, actor=current_user)
-        return RiskEvaluationResponse.model_validate(eval_run)
+        return serialize_risk_evaluation_for_user(eval_run, current_user)
     except RiskServiceError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -527,8 +609,6 @@ def evaluate_claim_risk(
     summary="List all risk evaluations for a claim",
     dependencies=[
         require_roles(
-            UserRole.CUSTOMER,
-            UserRole.STAFF,
             UserRole.ASSESSOR,
             UserRole.INVESTIGATOR,
             UserRole.MANAGER,
@@ -545,7 +625,7 @@ def list_risk_evaluations(
     service = RiskService(db)
     try:
         evals = service.get_risk_evaluations(claim_id=claim_id, actor=current_user)
-        return [RiskEvaluationResponse.model_validate(e) for e in evals]
+        return [serialize_risk_evaluation_for_user(e, current_user) for e in evals]
     except RiskServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -557,8 +637,6 @@ def list_risk_evaluations(
     summary="Get latest risk evaluation for a claim",
     dependencies=[
         require_roles(
-            UserRole.CUSTOMER,
-            UserRole.STAFF,
             UserRole.ASSESSOR,
             UserRole.INVESTIGATOR,
             UserRole.MANAGER,
@@ -580,7 +658,7 @@ def get_latest_risk_evaluation(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No risk evaluations recorded for claim '{claim_id}'",
             )
-        return RiskEvaluationResponse.model_validate(eval_run)
+        return serialize_risk_evaluation_for_user(eval_run, current_user)
     except RiskServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -595,7 +673,7 @@ def get_latest_risk_evaluation(
     response_model=AssessmentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Record assessment calculation and eligible amount",
-    dependencies=[require_roles(UserRole.ASSESSOR, UserRole.MANAGER, UserRole.ADMIN)],
+    dependencies=[require_roles(UserRole.ASSESSOR, UserRole.MANAGER)],
 )
 def create_assessment(
     claim_id: uuid.UUID,
@@ -839,7 +917,7 @@ def complete_investigation(
     response_model=DecisionResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Submit a definitive claim decision (APPROVED, REJECTED, INFO_REQUESTED)",
-    dependencies=[require_roles(UserRole.STAFF, UserRole.MANAGER, UserRole.ADMIN)],
+    dependencies=[require_roles(UserRole.STAFF, UserRole.MANAGER)],
 )
 def make_claim_decision(
     claim_id: uuid.UUID,

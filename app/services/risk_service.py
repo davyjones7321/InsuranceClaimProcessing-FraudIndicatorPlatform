@@ -31,6 +31,7 @@ from app.domain.enums import (
     IndicatorStatus,
     InvestigationStatus,
     RiskCategory,
+    UserRole,
 )
 from app.domain.state_machine import validate_transition
 from app.engine.risk import evaluate_risk
@@ -43,7 +44,7 @@ from app.engine.types import (
     RiskInput,
 )
 from app.rules.loader import ACTIVE_RULESET
-from app.security.rbac import check_claim_access
+from app.security.rbac import PermissionDeniedError, check_claim_access, check_risk_access
 
 
 class RiskServiceError(ValueError):
@@ -211,7 +212,11 @@ class RiskService:
             raise RiskServiceError(f"Claim '{claim_id}' not found")
 
         # Object-level access verification
-        check_claim_access(actor, claim)
+        check_claim_access(actor, claim, action="MUTATE")
+        if actor.role in (UserRole.CUSTOMER, UserRole.STAFF):
+            raise PermissionDeniedError(
+                f"Role '{actor.role.value}' is not authorized to evaluate claim risk"
+            )
 
         # Section 10: Runs only after validation PASS (claim must be VALIDATED or re-evaluating in later states)
         allowed_eval_statuses = (
@@ -382,7 +387,7 @@ class RiskService:
         claim = self.db.get(Claim, claim_id)
         if not claim:
             raise RiskServiceError(f"Claim '{claim_id}' not found")
-        check_claim_access(actor, claim)
+        check_risk_access(actor, claim)
 
         stmt = (
             select(RiskEvaluation)
@@ -393,5 +398,9 @@ class RiskService:
 
     def get_latest_risk_evaluation(self, claim_id: uuid.UUID, actor: User) -> RiskEvaluation | None:
         """Retrieve the most recent risk evaluation for a claim."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise RiskServiceError(f"Claim '{claim_id}' not found")
+        check_risk_access(actor, claim)
         runs = self.get_risk_evaluations(claim_id, actor)
         return runs[0] if runs else None

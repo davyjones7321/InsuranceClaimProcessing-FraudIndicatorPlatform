@@ -29,7 +29,10 @@ from app.domain.enums import (
 )
 from app.domain.state_machine import validate_transition
 from app.schemas.decisions import DecisionCreate
-from app.security.rbac import check_claim_access
+from app.security.rbac import (
+    PermissionDeniedError,
+    check_claim_access,
+)
 
 
 class DecisionServiceError(Exception):
@@ -67,10 +70,16 @@ class DecisionService:
         if not claim:
             raise DecisionServiceError(f"Claim '{claim_id}' not found")
 
-        # 1. Role verification: only Staff, Manager, or Admin
-        if actor.role not in (UserRole.STAFF, UserRole.MANAGER, UserRole.ADMIN):
+        # 0. Service-level object authorization
+        try:
+            check_claim_access(actor, claim, action="DECIDE")
+        except PermissionDeniedError as exc:
+            raise DecisionPermissionError(str(exc)) from exc
+
+        # 1. Role verification: only Staff or Manager (D6: Admin forbidden from making claim decisions)
+        if actor.role not in (UserRole.STAFF, UserRole.MANAGER):
             raise DecisionPermissionError(
-                f"Role '{actor.role.value}' is not authorized to make claim decisions"
+                f"Role '{actor.role.value}' is not authorized to make claim decisions (D6)"
             )
 
         # 2. Separation of duties: Claimant cannot decide own claim
@@ -92,6 +101,13 @@ class DecisionService:
             raise DecisionPermissionError(
                 "Separation of duties violation: assigned investigator for this claim cannot decide it"
             )
+
+        # 3b. Separation of duties: Assessor cannot decide it
+        for asm in claim.assessments:
+            if asm.assessor_id == actor.id:
+                raise DecisionPermissionError(
+                    "Separation of duties violation: assessor who assessed this claim cannot decide it"
+                )
 
         # 4. Mandatory remarks constraint
         clean_remarks = payload.remarks.strip()

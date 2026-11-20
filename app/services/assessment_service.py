@@ -14,7 +14,7 @@ from app.domain.state_machine import validate_transition
 from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.types import AssessmentInput
 from app.schemas.assessments import AssessmentCreate
-from app.security.rbac import check_claim_access
+from app.security.rbac import PermissionDeniedError, check_claim_access
 
 
 class AssessmentServiceError(Exception):
@@ -52,10 +52,16 @@ class AssessmentService:
         if not claim:
             raise AssessmentServiceError(f"Claim '{claim_id}' not found")
 
-        # Role constraint: only Assessor, Manager, or Admin
-        if actor.role not in (UserRole.ASSESSOR, UserRole.MANAGER, UserRole.ADMIN):
+        # Object-level access verification
+        try:
+            check_claim_access(actor, claim, action="MUTATE")
+        except PermissionDeniedError as exc:
+            raise AssessmentPermissionError(str(exc)) from exc
+
+        # Role constraint: only Assessor or Manager (D6: Admin forbidden from claim assessments)
+        if actor.role not in (UserRole.ASSESSOR, UserRole.MANAGER):
             raise AssessmentPermissionError(
-                f"Role '{actor.role.value}' is not authorized to submit assessments"
+                f"Role '{actor.role.value}' is not authorized to submit assessments (D6)"
             )
 
         # Separation of duties: claimant cannot assess own claim

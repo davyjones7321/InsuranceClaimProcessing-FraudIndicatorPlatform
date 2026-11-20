@@ -17,6 +17,7 @@ from app.db.models import (
     PolicyInsuredItem,
     User,
 )
+from app.domain.constants import CANONICAL_SENSITIVE_DOC_CODES
 from app.domain.enums import (
     ClaimChannel,
     ClaimStatus,
@@ -27,16 +28,16 @@ from app.domain.enums import (
 from app.domain.state_machine import validate_transition
 from app.schemas.claims import ClaimCreate, ClaimStatusTransitionRequest
 from app.schemas.documents import DocumentReviewRequest
+from app.security.access_log import log_access
 from app.security.rbac import (
     PermissionDeniedError,
     check_claim_access,
     check_document_access,
+    check_separation_of_duties,
 )
 from app.services.document_storage import DocumentStorage, default_storage
 
-SENSITIVE_DOC_CODES: frozenset[str] = frozenset(
-    {"MEDICAL_REPORT", "DEATH_CERTIFICATE", "DISCHARGE_SUMMARY"}
-)
+SENSITIVE_DOC_CODES = CANONICAL_SENSITIVE_DOC_CODES
 
 
 class StaleStatusVersionError(Exception):
@@ -228,7 +229,7 @@ class ClaimService:
             raise ClaimValidationError(f"Claim '{claim_id}' not found")
 
         # Object-level check: customers can only upload to own claims; staff to registered/assigned
-        check_claim_access(actor, claim)
+        check_claim_access(actor, claim, action="MUTATE")
 
         # Section B.16: Superseding. Replacing prior VALID/PENDING_REVIEW marks prior row SUPERSEDED
         existing_docs = self.db.scalars(
@@ -292,10 +293,18 @@ class ClaimService:
         review_req: DocumentReviewRequest,
         actor: User,
     ) -> ClaimDocument:
-        """Review a claim document (Assessor / Staff)."""
-        if actor.role not in (UserRole.ASSESSOR, UserRole.STAFF, UserRole.MANAGER, UserRole.ADMIN):
+        """Review a claim document (Assessor / Manager per D8)."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise ClaimValidationError(f"Claim '{claim_id}' not found")
+
+        # Object-level check
+        check_claim_access(actor, claim, action="MUTATE")
+
+        # Role constraint: Assessor or Manager only (D8: not staff, not admin)
+        if actor.role not in (UserRole.ASSESSOR, UserRole.MANAGER):
             raise PermissionDeniedError(
-                f"Role '{actor.role.value}' does not have document.review permission"
+                f"Role '{actor.role.value}' does not have document.review permission (D8)"
             )
 
         doc = self.db.scalars(
@@ -306,6 +315,9 @@ class ClaimService:
         ).first()
         if not doc:
             raise ClaimValidationError(f"Document '{document_id}' not found on claim '{claim_id}'")
+
+        # Separation of duties: Reviewer cannot be the uploader (P1 task 8, D8)
+        check_separation_of_duties(actor, claim, action="REVIEW_DOCUMENT", document=doc)
 
         # Enforce mandatory remarks and reason code on INVALID
         doc.status = review_req.status
@@ -353,6 +365,18 @@ class ClaimService:
         # Check document-level access, including sensitive identity/medical docs
         check_document_access(actor, claim, doc)
 
+        # Fail-closed access_log commit before streaming binary (P1 task 5)
+        is_sensitive = doc.doc_code in SENSITIVE_DOC_CODES
+        if is_sensitive or (claim.customer_id != actor.customer_id):
+            log_access(
+                db=self.db,
+                actor=actor,
+                claim_id=claim.id,
+                document_id=doc.id,
+                resource_type="DOCUMENT",
+                action="DOWNLOAD",
+            )
+
         # Section H.88: Log every sensitive-document view/download
         if doc.doc_code in SENSITIVE_DOC_CODES:
             write_audit_log(
@@ -388,6 +412,12 @@ class ClaimService:
         claim = self.db.scalars(stmt).first()
         if not claim:
             raise ClaimValidationError(f"Claim '{claim_id}' not found")
+
+        # Object-level check: actor must have mutation permission on this claim
+        check_claim_access(actor, claim, action="MUTATE")
+
+        if actor.role == UserRole.CUSTOMER:
+            raise PermissionDeniedError("Customers cannot directly transition claim status")
 
         # Verify optimistic locking token
         if claim.status_version != req.expected_status_version:

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import (
+    AccessLog,
     AuditLog,
     Claim,
     ClaimDocument,
@@ -241,18 +242,20 @@ def test_document_superseding_lifecycle(
     assert doc2_db.status == DocumentStatus.PENDING_REVIEW
 
 
-def test_document_review_by_assessor_or_staff(
+def test_document_review_by_assessor_or_manager(
     client: TestClient, db_session: Session, document_test_setup: dict[str, Any]
 ) -> None:
-    """Assessors and Staff can review documents; marking INVALID requires reason_code and remarks (Section B.17)."""
+    """Assessors and Managers can review documents; Staff and Customers get 403 (D8, Section B.17)."""
     user_cust = document_test_setup["user_cust"]
     user_assessor = document_test_setup["user_assessor"]
     user_staff = document_test_setup["user_staff"]
+    user_manager = document_test_setup["user_manager"]
     claim = document_test_setup["claim"]
 
     hdr_cust = auth_headers(db_session, user_cust)
     hdr_assessor = auth_headers(db_session, user_assessor)
     hdr_staff = auth_headers(db_session, user_staff)
+    hdr_manager = auth_headers(db_session, user_manager)
 
     # Upload document
     upload_res = client.post(
@@ -271,7 +274,15 @@ def test_document_review_by_assessor_or_staff(
     )
     assert res_cust_review.status_code == 403
 
-    # 2. Marking INVALID without reason_code fails validation
+    # 2. Staff cannot review documents per D8 (403)
+    res_staff_review = client.patch(
+        f"/api/claims/{claim.id}/documents/{doc_id}/review",
+        headers=hdr_staff,
+        json={"status": "VALID"},
+    )
+    assert res_staff_review.status_code == 403
+
+    # 3. Marking INVALID without reason_code fails validation
     res_invalid_no_reason = client.patch(
         f"/api/claims/{claim.id}/documents/{doc_id}/review",
         headers=hdr_assessor,
@@ -279,10 +290,10 @@ def test_document_review_by_assessor_or_staff(
     )
     assert res_invalid_no_reason.status_code == 422
 
-    # 3. Marking INVALID with reason_code and remarks succeeds
+    # 4. Manager marks INVALID with reason_code and remarks succeeds
     res_invalid_ok = client.patch(
         f"/api/claims/{claim.id}/documents/{doc_id}/review",
-        headers=hdr_staff,
+        headers=hdr_manager,
         json={
             "status": "INVALID",
             "reason_code": "DOCUMENT_ILLEGIBLE",
@@ -293,9 +304,9 @@ def test_document_review_by_assessor_or_staff(
     doc_rev = res_invalid_ok.json()
     assert doc_rev["status"] == "INVALID"
     assert doc_rev["reason_code"] == "DOCUMENT_ILLEGIBLE"
-    assert doc_rev["reviewed_by"] == str(user_staff.id)
+    assert doc_rev["reviewed_by"] == str(user_manager.id)
 
-    # 4. Assessor reviews to VALID
+    # 5. Assessor reviews to VALID
     res_valid_ok = client.patch(
         f"/api/claims/{claim.id}/documents/{doc_id}/review",
         headers=hdr_assessor,
@@ -347,7 +358,7 @@ def test_sensitive_document_access_control_and_view_logging(
     assert res_assessor_dl.status_code == 200
     assert res_assessor_dl.content == b"%PDF-1.4 confidential medical record"
 
-    # 3. Verify sensitive document download wrote audit log entry
+    # 3. Verify sensitive document download wrote audit log entry and access_log row
     audit = (
         db_session.query(AuditLog)
         .filter_by(chain_key=f"claim:{claim.id}", action="SENSITIVE_DOCUMENT_DOWNLOADED")
@@ -355,3 +366,12 @@ def test_sensitive_document_access_control_and_view_logging(
     )
     assert audit is not None
     assert audit.actor_role == "assessor"
+
+    access_entry = (
+        db_session.query(AccessLog)
+        .filter_by(claim_id=claim.id, document_id=uuid.UUID(doc_id), action="DOWNLOAD")
+        .first()
+    )
+    assert access_entry is not None
+    assert access_entry.actor_role == "assessor"
+    assert access_entry.resource_type == "DOCUMENT"

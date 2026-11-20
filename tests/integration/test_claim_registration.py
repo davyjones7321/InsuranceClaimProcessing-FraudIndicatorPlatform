@@ -413,7 +413,12 @@ def test_claim_listing_object_level_isolation(
     assert res_b.status_code == 200
     assert len(res_b.json()) == 0
 
-    # Staff lists claims -> sees 0 because staff didn't register this one
+    # Staff lists claims -> sees summary of all claims per D7
     res_staff = client.get("/api/claims", headers=hdr_staff)
     assert res_staff.status_code == 200
-    assert len(res_staff.json()) == 0
+    assert len(res_staff.json()) >= 1
+
+    # Staff views full detail of a claim registered by customer -> 403 Forbidden (D7 isolation)
+    claim_id = res_a.json()[0]["id"]
+    res_staff_detail = client.get(f"/api/claims/{claim_id}", headers=hdr_staff)
+    assert res_staff_detail.status_code == 403

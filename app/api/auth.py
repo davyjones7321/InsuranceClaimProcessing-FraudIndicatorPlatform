@@ -72,6 +72,12 @@ def login(
 
     # Record successful login
     record_login_attempt(db, identifier, success=True)
+
+    # Session rotation: invalidate existing session if present (P1 task 7)
+    existing_cookie = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if existing_cookie:
+        delete_session(db, existing_cookie)
+
     session_id = create_session(db, user)
     csrf_token = generate_csrf_token(session_id)
 

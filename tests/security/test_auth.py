@@ -86,7 +86,11 @@ def test_api_login_success_and_logout(client: TestClient, sample_admin: User) ->
     assert res_me.json()["email"] == "admin@test.com"
 
     # 3. Logout
-    res_logout = client.post("/api/auth/logout", cookies=res.cookies)
+    res_logout = client.post(
+        "/api/auth/logout",
+        cookies=res.cookies,
+        headers={"X-CSRF-Token": data["csrf_token"]},
+    )
     assert res_logout.status_code == 200
 
     # 4. Verify me fails after logout
