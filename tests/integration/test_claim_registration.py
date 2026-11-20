@@ -250,6 +250,7 @@ def test_staff_registers_claim_on_behalf_of_customer(
     user_staff = registration_setup["user_staff"]
     cust_a = registration_setup["cust_a"]
     policy_active = registration_setup["policy_active"]
+    insured_car = registration_setup["insured_car"]
     hdr = auth_headers(db_session, user_staff)
 
     payload = {
@@ -260,6 +261,7 @@ def test_staff_registers_claim_on_behalf_of_customer(
         "incident_location": "Downtown Garage",
         "incident_description": "Registered via call center staff assistance.",
         "requested_amount": "30000.00",
+        "insured_item_id": str(insured_car.id),
     }
 
     res = client.post("/api/claims", headers=hdr, json=payload)
@@ -351,6 +353,7 @@ def test_idempotent_claim_double_submit(
     """Double-submitting with matching source_system and external_ref returns existing claim idempotently."""
     user_a = registration_setup["user_a"]
     policy_active = registration_setup["policy_active"]
+    insured_car = registration_setup["insured_car"]
     hdr = auth_headers(db_session, user_a)
 
     payload = {
@@ -362,6 +365,7 @@ def test_idempotent_claim_double_submit(
         "requested_amount": "12000.00",
         "source_system": "PORTAL_V1",
         "external_ref": "EXT-TXN-999001",
+        "insured_item_id": str(insured_car.id),
     }
 
     # First submit
@@ -386,6 +390,7 @@ def test_claim_listing_object_level_isolation(
     user_b = registration_setup["user_b"]
     user_staff = registration_setup["user_staff"]
     policy_active = registration_setup["policy_active"]
+    insured_car = registration_setup["insured_car"]
 
     hdr_a = auth_headers(db_session, user_a)
     hdr_b = auth_headers(db_session, user_b)
@@ -402,6 +407,7 @@ def test_claim_listing_object_level_isolation(
             "incident_location": "Oak St",
             "incident_description": "Claim A",
             "requested_amount": "5000.00",
+            "insured_item_id": str(insured_car.id),
         },
     )
 

@@ -2,12 +2,14 @@
 
 import uuid
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
+from app.config import settings
 from app.db.base import utc_now
 from app.db.lock_utils import set_lock_timeout
 from app.db.models import (
@@ -27,6 +29,7 @@ from app.domain.enums import (
     ClaimStatus,
     DocumentStatus,
     PolicyStatus,
+    ProductType,
     UserRole,
 )
 from app.domain.state_machine import validate_transition
@@ -150,17 +153,51 @@ class ClaimService:
                 f"Claim category '{payload.claim_category}' is explicitly excluded on policy '{policy.policy_no}'"
             )
 
-        # Validate insured item if provided (Section E.61)
+        # Task 7: Insured item and member verification
         if payload.insured_item_id:
             item = self.db.get(PolicyInsuredItem, payload.insured_item_id)
             if not item or item.policy_id != policy.id:
                 raise ClaimValidationError(
                     f"Insured item '{payload.insured_item_id}' does not belong to policy '{policy.policy_no}'"
                 )
+            if policy.product_type == ProductType.VEHICLE and item.item_type.upper() != "VEHICLE":
+                raise ClaimValidationError(
+                    f"Claimed item '{payload.insured_item_id}' has type '{item.item_type}', but VEHICLE is required"
+                )
+            if policy.product_type == ProductType.PROPERTY and item.item_type.upper() != "PROPERTY":
+                raise ClaimValidationError(
+                    f"Claimed item '{payload.insured_item_id}' has type '{item.item_type}', but PROPERTY is required"
+                )
+            if policy.product_type == ProductType.HEALTH and item.item_type.upper() != "MEMBER":
+                raise ClaimValidationError(
+                    f"Claimed item '{payload.insured_item_id}' has type '{item.item_type}', but MEMBER is required"
+                )
+        else:
+            # If policy has declared insured vehicle/property items, require one to be claimed
+            if policy.product_type == ProductType.VEHICLE:
+                has_vehicles = any(i.item_type.upper() == "VEHICLE" for i in policy.insured_items)
+                if has_vehicles:
+                    raise ClaimValidationError(
+                        "Vehicle policy requires specifying an insured vehicle item"
+                    )
+            elif policy.product_type == ProductType.PROPERTY:
+                has_properties = any(
+                    i.item_type.upper() == "PROPERTY" for i in policy.insured_items
+                )
+                if has_properties:
+                    raise ClaimValidationError(
+                        "Property policy requires specifying an insured property item"
+                    )
 
         # Generate unique sequential claim reference
         year = payload.incident_date.year
         claim_ref = self.generate_claim_ref(year)
+
+        # Task 10: Store registered_at (UTC), registered_on (business date), and registered_tz
+        now_utc = utc_now()
+        tz_name = settings.BUSINESS_TIMEZONE
+        tz = ZoneInfo(tz_name)
+        registered_on = now_utc.astimezone(tz).date()
 
         claim_id = uuid.uuid4()
         claim = Claim(
@@ -169,12 +206,15 @@ class ClaimService:
             policy_id=policy.id,
             customer_id=target_customer_id,
             insured_item_id=payload.insured_item_id,
+            incident_group_id=payload.incident_group_id,
             claim_category=payload.claim_category,
             incident_date=payload.incident_date,
             incident_location=payload.incident_location,
             incident_description=payload.incident_description,
             requested_amount=payload.requested_amount,
-            registered_at=utc_now(),
+            registered_at=now_utc,
+            registered_on=registered_on,
+            registered_tz=tz_name,
             registered_by=actor.id,
             channel=channel,
             status=ClaimStatus.REGISTERED,

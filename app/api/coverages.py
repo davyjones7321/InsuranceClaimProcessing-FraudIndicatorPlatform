@@ -4,11 +4,11 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.audit.writer import write_audit_log
-from app.db.models import Coverage, Exclusion, Policy, User
+from app.db.models import Claim, Coverage, Exclusion, Policy, User
 from app.db.session import get_db
 from app.domain.enums import UserRole
 from app.schemas.master_data import (
@@ -125,6 +125,19 @@ def update_coverage(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Coverage with ID '{coverage_id}' not found",
+        )
+
+    # Task 5: Coverage edits are blocked once a claim references the coverage
+    claim_count = db.scalar(
+        select(func.count(Claim.id)).where(
+            Claim.policy_id == coverage.policy_id,
+            Claim.claim_category == coverage.claim_category,
+        )
+    )
+    if claim_count and claim_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Coverage cannot be edited because {claim_count} claim(s) reference it",
         )
 
     update_data = payload.model_dump(exclude_unset=True)

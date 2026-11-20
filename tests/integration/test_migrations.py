@@ -1,6 +1,6 @@
 """Integration test verifying that Alembic migrations apply on an empty DB and cleanly roll back."""
 
-import os
+from pathlib import Path
 
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
@@ -8,12 +8,11 @@ from sqlalchemy import create_engine, inspect
 from alembic import command
 
 
-def test_alembic_migrations_upgrade_and_downgrade() -> None:
+def test_alembic_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
     """Alembic migrations must apply cleanly to head and downgrade completely to base."""
     # Use isolated in-memory or file-based sqlite for migration test
-    migration_db_url = "sqlite:///test_migrations.db"
-    if os.path.exists("test_migrations.db"):
-        os.remove("test_migrations.db")
+    db_file = tmp_path / "test_migrations.db"
+    migration_db_url = f"sqlite:///{db_file.as_posix()}"
 
     engine = create_engine(migration_db_url)
 
@@ -34,7 +33,29 @@ def test_alembic_migrations_upgrade_and_downgrade() -> None:
         assert "audit_log" in tables
         assert "audit_chain_heads" in tables
         assert "coverage_ledger" in tables
+        assert "document_identity_attestations" in tables
+        assert "import_rejects" in tables
         assert "alembic_version" in tables
+
+        claim_cols = {c["name"] for c in inspector.get_columns("claims")}
+        assert "incident_group_id" in claim_cols
+        assert "registered_on" in claim_cols
+        assert "registered_tz" in claim_cols
+
+        assessment_cols = {c["name"] for c in inspector.get_columns("assessments")}
+        assert "ruleset_version" in assessment_cols
+        assert "engine_version" in assessment_cols
+        assert "ruleset_hash" in assessment_cols
+        assert "inputs_snapshot" in assessment_cols
+
+        val_run_cols = {c["name"] for c in inspector.get_columns("validation_runs")}
+        assert "ruleset_hash" in val_run_cols
+        assert "inputs_snapshot" in val_run_cols
+        assert "calculation_trace" in val_run_cols
+
+        risk_eval_cols = {c["name"] for c in inspector.get_columns("risk_evaluations")}
+        assert "ruleset_hash" in risk_eval_cols
+        assert "calculation_trace" in risk_eval_cols
 
         # 2. Downgrade to base
         command.downgrade(alembic_cfg, "base")
@@ -55,5 +76,3 @@ def test_alembic_migrations_upgrade_and_downgrade() -> None:
         assert "claims" in reapplied_tables
     finally:
         engine.dispose()
-        if os.path.exists("test_migrations.db"):
-            os.remove("test_migrations.db")

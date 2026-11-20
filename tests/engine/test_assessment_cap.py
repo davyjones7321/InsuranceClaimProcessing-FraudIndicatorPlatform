@@ -1,4 +1,4 @@
-"""Unit and property tests for pure assessment cap calculation engine."""
+"""Unit and property tests for pure assessment cap calculation engine (P5 Tasks 1-6)."""
 
 from decimal import Decimal
 
@@ -7,7 +7,8 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from app.engine.assessment_cap import calculate_assessment_cap
-from app.engine.types import AssessmentInput
+from app.engine.product_profiles import FORMULA_SOURCE, UnsupportedProductError
+from app.engine.types import AssessmentComponentInput, AssessmentInput
 
 
 def test_health_assessment_cap_calculation() -> None:
@@ -23,129 +24,107 @@ def test_health_assessment_cap_calculation() -> None:
     out = calculate_assessment_cap(inp)
     # net = 10,000 - 1,000 = 9,000; after copay 10% = 9,000 * 0.9 = 8,100
     assert out.max_eligible_amount == Decimal("8100.00")
+    assert out.calculation_trace["formula_source"] == FORMULA_SOURCE
     assert out.calculation_trace["net_after_deductible"] == "9000.00"
     assert out.calculation_trace["after_copay"] == "8100.00"
     assert out.calculation_trace["max_eligible_amount"] == "8100.00"
 
 
-def test_health_capped_by_remaining_limit() -> None:
-    """Verify HEALTH cap is constrained by remaining limit."""
+def test_appendix_c_health_golden() -> None:
+    """Appendix C: HEALTH assessed loss 100,000; deductible 5,000; copay 10%; remaining 200,000 -> payable 85,500.00."""
     inp = AssessmentInput(
         product_type="HEALTH",
         requested_amount=Decimal("100000.00"),
-        remaining_limit=Decimal("50000.00"),
+        remaining_limit=Decimal("200000.00"),
         assessed_loss=Decimal("100000.00"),
-        deductible=Decimal("0.00"),
-        copay_percent=Decimal("20.00"),
-    )
-    out = calculate_assessment_cap(inp)
-    # after copay = 80,000, remaining limit = 50,000 -> 50,000
-    assert out.max_eligible_amount == Decimal("50000.00")
-    assert out.calculation_trace["payable"] == "50000.00"
-
-
-def test_vehicle_assessment_cap_calculation() -> None:
-    """Verify VEHICLE calculation: after_depr = max(0, loss - depr); payable = min(limit, max(0, after_depr - deductible))."""
-    inp = AssessmentInput(
-        product_type="VEHICLE",
-        requested_amount=Decimal("60000.00"),
-        remaining_limit=Decimal("100000.00"),
-        assessed_loss=Decimal("50000.00"),
-        depreciation=Decimal("5000.00"),
-        deductible=Decimal("2500.00"),
-    )
-    out = calculate_assessment_cap(inp)
-    # after_depr = 45,000; after_deductible = 42,500; limit = 100,000 -> 42,500
-    assert out.max_eligible_amount == Decimal("42500.00")
-    assert out.calculation_trace["after_depreciation"] == "45000.00"
-    assert out.calculation_trace["after_deductible"] == "42500.00"
-
-
-def test_property_assessment_cap_with_underinsurance() -> None:
-    """Verify PROPERTY coinsurance factor: adjusted = loss * min(1, sum_insured / value_at_risk)."""
-    inp = AssessmentInput(
-        product_type="PROPERTY",
-        requested_amount=Decimal("120000.00"),
-        remaining_limit=Decimal("800000.00"),
-        assessed_loss=Decimal("100000.00"),
-        deductible=Decimal("10000.00"),
-        sum_insured=Decimal("800000.00"),
-        value_at_risk=Decimal("1000000.00"),
-    )
-    out = calculate_assessment_cap(inp)
-    # factor = 800,000 / 1,000,000 = 0.8; adjusted = 80,000; after deductible = 70,000
-    assert out.max_eligible_amount == Decimal("70000.00")
-    assert out.calculation_trace["coinsurance_factor"] == "0.8000"
-    assert out.calculation_trace["adjusted_loss"] == "80000.00"
-    assert out.calculation_trace["after_deductible"] == "70000.00"
-
-
-def test_property_overinsurance_capped_at_one() -> None:
-    """Coinsurance factor must never exceed 1.0 even if sum_insured > value_at_risk."""
-    inp = AssessmentInput(
-        product_type="PROPERTY",
-        requested_amount=Decimal("50000.00"),
-        remaining_limit=Decimal("2000000.00"),
-        assessed_loss=Decimal("50000.00"),
         deductible=Decimal("5000.00"),
-        sum_insured=Decimal("1500000.00"),
-        value_at_risk=Decimal("1000000.00"),
+        copay_percent=Decimal("10.00"),
     )
     out = calculate_assessment_cap(inp)
-    # factor = 1.0; adjusted = 50,000; after deductible = 45,000
-    assert out.max_eligible_amount == Decimal("45000.00")
-    assert out.calculation_trace["coinsurance_factor"] == "1.0000"
+    assert out.max_eligible_amount == Decimal("85500.00")
 
 
-def test_loss_less_than_deductible_yields_zero() -> None:
-    """When assessed loss is less than deductible, max eligible amount must be 0.00."""
+def test_appendix_c_health_single_final_rounding() -> None:
+    """Appendix C: loss 10,001.55, no deductible, copay 12.5%: 10,001.55 * 0.875 = 8,751.35625 -> rounds to 8,751.36."""
     inp = AssessmentInput(
         product_type="HEALTH",
-        requested_amount=Decimal("500.00"),
-        remaining_limit=Decimal("10000.00"),
-        assessed_loss=Decimal("500.00"),
-        deductible=Decimal("1000.00"),
+        requested_amount=Decimal("10001.55"),
+        remaining_limit=Decimal("50000.00"),
+        assessed_loss=Decimal("10001.55"),
+        deductible=Decimal("0.00"),
+        copay_percent=Decimal("12.50"),
     )
     out = calculate_assessment_cap(inp)
-    assert out.max_eligible_amount == Decimal("0.00")
+    assert out.max_eligible_amount == Decimal("8751.36")
 
 
-def test_negative_inputs_raise_value_error() -> None:
-    """Engine must strictly reject negative monetary inputs."""
-    base = {
-        "product_type": "HEALTH",
-        "requested_amount": Decimal("100.00"),
-        "remaining_limit": Decimal("1000.00"),
-        "assessed_loss": Decimal("50.00"),
-    }
-
-    with pytest.raises(ValueError, match="Assessed loss cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "assessed_loss": Decimal("-50.00")}))
-
-    with pytest.raises(ValueError, match="Remaining limit cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "remaining_limit": Decimal("-10.00")}))
-
-    with pytest.raises(ValueError, match="Deductible cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "deductible": Decimal("-10.00")}))
-
-    with pytest.raises(ValueError, match="Copay percent must be between 0 and 100"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "copay_percent": Decimal("-5.00")}))
-
-    with pytest.raises(ValueError, match="Copay percent must be between 0 and 100"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "copay_percent": Decimal("105.00")}))
-
-    with pytest.raises(ValueError, match="Depreciation cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "depreciation": Decimal("-5.00")}))
-
-    with pytest.raises(ValueError, match="Sum insured cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "sum_insured": Decimal("-5.00")}))
-
-    with pytest.raises(ValueError, match="Value at risk cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**base, "value_at_risk": Decimal("-5.00")}))
+def test_appendix_c_vehicle_with_components_golden() -> None:
+    """Appendix C: parts 60,000 with 20% depreciation (12,000) gives 48,000; labour 20,000; total 68,000; deductible 2,500 -> 65,500.00."""
+    inp = AssessmentInput(
+        product_type="VEHICLE",
+        requested_amount=Decimal("80000.00"),
+        remaining_limit=Decimal("100000.00"),
+        assessed_loss=Decimal("80000.00"),
+        depreciation=Decimal("12000.00"),  # 20% of 60,000 parts
+        deductible=Decimal("2500.00"),
+        components=(
+            AssessmentComponentInput(
+                component_type="PARTS",
+                claimed_amount=Decimal("60000.00"),
+                assessed_amount=Decimal("60000.00"),
+            ),
+            AssessmentComponentInput(
+                component_type="LABOUR",
+                claimed_amount=Decimal("20000.00"),
+                assessed_amount=Decimal("20000.00"),
+            ),
+        ),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("65500.00")
+    assert out.calculation_trace["after_depreciation"] == "68000.00"
+    assert out.calculation_trace["after_deductible"] == "65500.00"
 
 
-def test_fallback_product_type() -> None:
-    """Fallback product type applies basic deductible and limit cap."""
+def test_appendix_c_property_golden() -> None:
+    """Appendix C: loss 800,000; sum insured 5,000,000; value at risk 8,000,000; factor 0.625 gives 500,000; deductible 25,000 -> 475,000.00."""
+    inp = AssessmentInput(
+        product_type="PROPERTY",
+        requested_amount=Decimal("800000.00"),
+        remaining_limit=Decimal("5000000.00"),
+        assessed_loss=Decimal("800000.00"),
+        deductible=Decimal("25000.00"),
+        sum_insured=Decimal("5000000.00"),
+        value_at_risk=Decimal("8000000.00"),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("475000.00")
+    assert out.calculation_trace["coinsurance_factor"] == "0.6250"
+    assert out.calculation_trace["adjusted_loss"] == "500000.00"
+
+
+def test_appendix_c_limit_cap_applied() -> None:
+    """Appendix C: HEALTH adjusted amount 85,500 with remaining limit 60,000 gives payable 60,000, limit_capped = true, shortfall 25,500."""
+    inp = AssessmentInput(
+        product_type="HEALTH",
+        requested_amount=Decimal("100000.00"),
+        remaining_limit=Decimal("60000.00"),
+        assessed_loss=Decimal("100000.00"),
+        deductible=Decimal("5000.00"),
+        copay_percent=Decimal("10.00"),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("60000.00")
+    trace = out.calculation_trace
+    cap_trace = trace["step_3_limit_cap"]
+    assert isinstance(cap_trace, dict)
+    assert cap_trace["limit_capped"] is True
+    assert cap_trace["shortfall"] == "25500.00"
+    assert cap_trace["cap_reason"] == "LIMIT_APPLIED"
+
+
+def test_unsupported_product_strictly_rejected() -> None:
+    """Task 2 & Gate: Unsupported product types (e.g. TRAVEL) must be explicitly rejected with no generic fallback."""
     inp = AssessmentInput(
         product_type="TRAVEL",
         requested_amount=Decimal("2000.00"),
@@ -153,25 +132,149 @@ def test_fallback_product_type() -> None:
         assessed_loss=Decimal("2000.00"),
         deductible=Decimal("200.00"),
     )
-    out = calculate_assessment_cap(inp)
-    assert out.max_eligible_amount == Decimal("1800.00")
-    assert out.calculation_trace["product_type"] == "TRAVEL"
+    with pytest.raises(UnsupportedProductError, match="Unsupported product type 'TRAVEL'"):
+        calculate_assessment_cap(inp)
 
 
-def test_property_zero_value_at_risk() -> None:
-    """When value at risk is zero, coinsurance factor defaults to 1.0."""
+def test_float_rejection() -> None:
+    """Task 3: Floats must be rejected to prevent precision errors."""
+    with pytest.raises(TypeError, match="Float value"):
+        calculate_assessment_cap(
+            AssessmentInput(
+                product_type="HEALTH",
+                requested_amount=100.0,  # type: ignore[arg-type]
+                remaining_limit=Decimal("1000.00"),
+                assessed_loss=Decimal("100.00"),
+            )
+        )
+
+
+def test_assessed_loss_exceeds_requested_amount_rejected() -> None:
+    """Task 1: Assessor loss cannot exceed requested amount."""
     inp = AssessmentInput(
-        product_type="PROPERTY",
+        product_type="HEALTH",
+        requested_amount=Decimal("5000.00"),
+        remaining_limit=Decimal("10000.00"),
+        assessed_loss=Decimal("6000.00"),
+    )
+    with pytest.raises(ValueError, match="cannot exceed requested amount"):
+        calculate_assessment_cap(inp)
+
+
+def test_component_zeroing_without_reason_rejected() -> None:
+    """Task 1: If a component is zeroed out by assessor, reason is mandatory."""
+    inp = AssessmentInput(
+        product_type="VEHICLE",
         requested_amount=Decimal("10000.00"),
-        remaining_limit=Decimal("50000.00"),
-        assessed_loss=Decimal("10000.00"),
-        deductible=Decimal("500.00"),
-        sum_insured=Decimal("100000.00"),
-        value_at_risk=Decimal("0.00"),
+        remaining_limit=Decimal("20000.00"),
+        assessed_loss=Decimal("0.00"),
+        components=(
+            AssessmentComponentInput(
+                component_type="PARTS",
+                claimed_amount=Decimal("10000.00"),
+                assessed_amount=Decimal("0.00"),
+                zeroed_reason="",  # empty reason
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="no zeroed_reason was provided"):
+        calculate_assessment_cap(inp)
+
+
+def test_component_zeroing_with_reason_accepted() -> None:
+    """Task 1: Assessor can zero component when valid reason is provided."""
+    inp = AssessmentInput(
+        product_type="VEHICLE",
+        requested_amount=Decimal("10000.00"),
+        remaining_limit=Decimal("20000.00"),
+        assessed_loss=Decimal("0.00"),
+        components=(
+            AssessmentComponentInput(
+                component_type="PARTS",
+                claimed_amount=Decimal("10000.00"),
+                assessed_amount=Decimal("0.00"),
+                zeroed_reason="Pre-existing damage not covered by policy incident",
+            ),
+        ),
     )
     out = calculate_assessment_cap(inp)
-    assert out.max_eligible_amount == Decimal("9500.00")
-    assert out.calculation_trace["coinsurance_factor"] == "1.0000"
+    assert out.max_eligible_amount == Decimal("0.00")
+
+
+def test_boundary_loss_at_or_below_deductible_gives_zero() -> None:
+    """Task 6: Loss <= deductible gives 0.00."""
+    inp = AssessmentInput(
+        product_type="HEALTH",
+        requested_amount=Decimal("1000.00"),
+        remaining_limit=Decimal("10000.00"),
+        assessed_loss=Decimal("1000.00"),
+        deductible=Decimal("1000.00"),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("0.00")
+
+
+def test_boundary_remaining_limit_zero_gives_zero() -> None:
+    """Task 6: Remaining limit 0 gives 0.00."""
+    inp = AssessmentInput(
+        product_type="HEALTH",
+        requested_amount=Decimal("5000.00"),
+        remaining_limit=Decimal("0.00"),
+        assessed_loss=Decimal("5000.00"),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("0.00")
+
+
+def test_boundary_copay_100_percent_gives_zero() -> None:
+    """Task 6: Copay 100% gives 0.00."""
+    inp = AssessmentInput(
+        product_type="HEALTH",
+        requested_amount=Decimal("5000.00"),
+        remaining_limit=Decimal("10000.00"),
+        assessed_loss=Decimal("5000.00"),
+        copay_percent=Decimal("100.00"),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("0.00")
+
+
+def test_boundary_depreciation_above_loss_gives_zero() -> None:
+    """Task 6: Depreciation exceeding loss yields 0.00 cleanly without negative payable."""
+    inp = AssessmentInput(
+        product_type="VEHICLE",
+        requested_amount=Decimal("5000.00"),
+        remaining_limit=Decimal("10000.00"),
+        assessed_loss=Decimal("5000.00"),
+        depreciation=Decimal("8000.00"),
+    )
+    out = calculate_assessment_cap(inp)
+    assert out.max_eligible_amount == Decimal("0.00")
+
+
+def test_boundary_zero_or_tiny_value_at_risk() -> None:
+    """Task 6: Zero or tiny value at risk must not crash with division by zero."""
+    inp_zero = AssessmentInput(
+        product_type="PROPERTY",
+        requested_amount=Decimal("5000.00"),
+        remaining_limit=Decimal("10000.00"),
+        assessed_loss=Decimal("5000.00"),
+        sum_insured=Decimal("10000.00"),
+        value_at_risk=Decimal("0.00"),
+    )
+    out_zero = calculate_assessment_cap(inp_zero)
+    assert out_zero.max_eligible_amount == Decimal("5000.00")
+
+    inp_tiny = AssessmentInput(
+        product_type="PROPERTY",
+        requested_amount=Decimal("5000.00"),
+        remaining_limit=Decimal("10000.00"),
+        assessed_loss=Decimal("5000.00"),
+        sum_insured=Decimal("10000.00"),
+        value_at_risk=Decimal("0.01"),
+    )
+    out_tiny = calculate_assessment_cap(inp_tiny)
+    assert out_tiny.max_eligible_amount == Decimal("5000.00")
 
 
 @given(

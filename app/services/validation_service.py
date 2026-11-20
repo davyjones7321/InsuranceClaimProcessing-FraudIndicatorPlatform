@@ -43,6 +43,7 @@ from app.engine.types import (
 )
 from app.engine.validation import evaluate_validation
 from app.rules.loader import ACTIVE_RULESET
+from app.schemas.snapshots import compute_ruleset_hash, serialize_validation_snapshot
 from app.security.rbac import check_claim_access
 
 
@@ -277,6 +278,10 @@ class ValidationService:
         )
         val_output = evaluate_validation(val_input)
 
+        active_rules = ruleset or ACTIVE_RULESET
+        ruleset_hash = compute_ruleset_hash(active_rules)
+        run_snapshot = serialize_validation_snapshot(val_input, ruleset_hash=ruleset_hash)
+
         # Persist ValidationRun
         run_id = uuid.uuid4()
         validation_run = ValidationRun(
@@ -284,8 +289,14 @@ class ValidationService:
             claim_id=claim.id,
             ruleset_version=val_output.ruleset_version,
             engine_version=val_output.engine_version,
+            ruleset_hash=ruleset_hash,
             evaluated_on=val_output.evaluated_on,
             overall_result=ValidationOutcome(val_output.overall_result.value),
+            inputs_snapshot=run_snapshot,
+            calculation_trace={
+                "overall_result": val_output.overall_result.value,
+                "blocked_document_reasons": val_output.blocked_document_reasons,
+            },
             created_at=utc_now(),
         )
         self.db.add(validation_run)

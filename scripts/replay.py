@@ -1,7 +1,8 @@
-"""Deterministic engine replay CLI script.
+"""Deterministic engine replay CLI script (Fix F7, P5 Task 8).
 
-Verifies pure engine determinism by replaying validation runs and risk evaluations
-against recorded database states and asserting exact matching outcomes, scores, and reason codes.
+Verifies pure engine determinism by replaying validation runs, risk evaluations,
+and assessment cap calculations STRICTLY from stored input snapshots.
+Never re-queries live Claim, Policy, Coverage, or Customer tables.
 """
 
 import argparse
@@ -11,62 +12,61 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Assessment, Claim, Coverage, RiskEvaluation, ValidationRun
+from app.db.models import Assessment, RiskEvaluation, ValidationRun
 from app.db.session import SessionLocal
 from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.risk import evaluate_risk
-from app.engine.types import AssessmentInput
 from app.engine.validation import evaluate_validation
-from app.services.risk_service import RiskService
-from app.services.validation_service import ValidationService
+from app.rules.loader import ACTIVE_RULESET
+from app.schemas.snapshots import (
+    deserialize_assessment_snapshot,
+    deserialize_risk_snapshot,
+    deserialize_validation_snapshot,
+)
 
 
 def replay_validation_run(
     db: Session, run: ValidationRun, verbose: bool = False
 ) -> tuple[bool, list[str]]:
-    """Replay a single stored validation run and verify bit-for-bit determinism."""
-    claim = db.get(Claim, run.claim_id)
-    if not claim:
-        return False, [f"Claim '{run.claim_id}' not found for ValidationRun '{run.id}'"]
-
-    service = ValidationService(db)
-    val_input = service.build_validation_input(
-        claim=claim,
-        evaluation_date=run.evaluated_on,
-    )
-    replayed = evaluate_validation(val_input)
+    """Replay a single stored validation run strictly from stored snapshot."""
+    if not run.inputs_snapshot:
+        return False, [f"ValidationRun '{run.id}' has empty inputs_snapshot"]
 
     errors: list[str] = []
+    try:
+        val_input = deserialize_validation_snapshot(run.inputs_snapshot, ruleset=ACTIVE_RULESET)
+        replayed = evaluate_validation(val_input)
+    except Exception as exc:
+        return False, [f"ValidationRun '{run.id}' failed to deserialize/evaluate: {exc}"]
 
-    # Check overall outcome
+    # 1. Compare overall outcome
     if replayed.overall_result.value != run.overall_result.value:
         errors.append(
             f"Overall result mismatch: stored='{run.overall_result.value}', "
             f"replayed='{replayed.overall_result.value}'"
         )
 
-    # Check ruleset version
+    # 2. Compare ruleset version
     if replayed.ruleset_version != run.ruleset_version:
         errors.append(
             f"Ruleset version mismatch: stored='{run.ruleset_version}', "
             f"replayed='{replayed.ruleset_version}'"
         )
 
-    # Check individual rule results
+    # 3. Compare individual rule results
     stored_results_by_rule = {r.rule_id: r for r in run.results}
     replayed_results_by_rule = {r.rule_id: r for r in replayed.rule_results}
 
     all_rule_ids = sorted(set(stored_results_by_rule.keys()) | set(replayed_results_by_rule.keys()))
-
     for r_id in all_rule_ids:
         s_res = stored_results_by_rule.get(r_id)
         r_res = replayed_results_by_rule.get(r_id)
 
         if not s_res:
-            errors.append(f"Rule '{r_id}' was evaluated during replay but was absent in stored run")
+            errors.append(f"Rule '{r_id}' evaluated during replay was absent in stored run")
             continue
         if not r_res:
-            errors.append(f"Rule '{r_id}' was in stored run but was not produced during replay")
+            errors.append(f"Rule '{r_id}' was in stored run but not produced during replay")
             continue
 
         if s_res.outcome.value != r_res.outcome.value:
@@ -83,7 +83,7 @@ def replay_validation_run(
 
     if verbose and not errors:
         print(
-            f"  [OK] ValidationRun {run.id} for Claim {claim.claim_ref}: {run.overall_result.value} ({len(run.results)} rules verified)"
+            f"  [OK] ValidationRun {run.id}: {run.overall_result.value} ({len(run.results)} rules verified from snapshot)"
         )
 
     return len(errors) == 0, errors
@@ -92,41 +92,36 @@ def replay_validation_run(
 def replay_risk_evaluation(
     db: Session, risk_eval: RiskEvaluation, verbose: bool = False
 ) -> tuple[bool, list[str]]:
-    """Replay a single stored risk evaluation and verify bit-for-bit determinism."""
-    claim = db.get(Claim, risk_eval.claim_id)
-    if not claim:
-        return False, [
-            f"Claim '{risk_eval.claim_id}' not found for RiskEvaluation '{risk_eval.id}'"
-        ]
-
-    service = RiskService(db)
-    risk_input = service.build_risk_input(
-        claim=claim,
-        evaluation_date=risk_eval.evaluated_on,
-    )
-    replayed = evaluate_risk(risk_input)
+    """Replay a single stored risk evaluation strictly from stored snapshot."""
+    if not risk_eval.inputs_snapshot:
+        return False, [f"RiskEvaluation '{risk_eval.id}' has empty inputs_snapshot"]
 
     errors: list[str] = []
+    try:
+        risk_input = deserialize_risk_snapshot(risk_eval.inputs_snapshot, ruleset=ACTIVE_RULESET)
+        replayed = evaluate_risk(risk_input)
+    except Exception as exc:
+        return False, [f"RiskEvaluation '{risk_eval.id}' failed to deserialize/evaluate: {exc}"]
 
-    # Check score
+    # 1. Compare score
     if replayed.score != risk_eval.score:
         errors.append(f"Score mismatch: stored={risk_eval.score}, replayed={replayed.score}")
 
-    # Check category
+    # 2. Compare category
     if replayed.category.value != risk_eval.category.value:
         errors.append(
             f"Category mismatch: stored='{risk_eval.category.value}', "
             f"replayed='{replayed.category.value}'"
         )
 
-    # Check requires_investigation flag
+    # 3. Compare requires_investigation flag
     if replayed.requires_investigation != risk_eval.requires_investigation:
         errors.append(
             f"requires_investigation mismatch: stored={risk_eval.requires_investigation}, "
             f"replayed={replayed.requires_investigation}"
         )
 
-    # Check indicator results
+    # 4. Compare indicator results
     stored_inds = {r.indicator_id: r for r in risk_eval.indicator_results}
     replayed_inds = {r.indicator_id: r for r in replayed.indicator_results}
 
@@ -137,12 +132,12 @@ def replay_risk_evaluation(
 
         if not s_ind:
             errors.append(
-                f"Indicator '{ind_id}' evaluated during replay but was absent in stored evaluation"
+                f"Indicator '{ind_id}' evaluated during replay was absent in stored evaluation"
             )
             continue
         if not r_ind:
             errors.append(
-                f"Indicator '{ind_id}' was in stored evaluation but was not produced during replay"
+                f"Indicator '{ind_id}' was in stored evaluation but not produced during replay"
             )
             continue
 
@@ -157,7 +152,7 @@ def replay_risk_evaluation(
 
     if verbose and not errors:
         print(
-            f"  [OK] RiskEvaluation {risk_eval.id} for Claim {claim.claim_ref}: score={risk_eval.score}, category={risk_eval.category.value} ({len(risk_eval.indicator_results)} indicators verified)"
+            f"  [OK] RiskEvaluation {risk_eval.id}: score={risk_eval.score}, category={risk_eval.category.value} ({len(risk_eval.indicator_results)} indicators verified from snapshot)"
         )
 
     return len(errors) == 0, errors
@@ -166,55 +161,34 @@ def replay_risk_evaluation(
 def replay_assessment(
     db: Session, assessment: Assessment, verbose: bool = False
 ) -> tuple[bool, list[str]]:
-    """Replay a stored assessment cap calculation and verify determinism."""
-    from decimal import Decimal
-
-    claim = db.get(Claim, assessment.claim_id)
-    if not claim:
-        return False, [f"Claim '{assessment.claim_id}' not found for Assessment '{assessment.id}'"]
-
-    policy = claim.policy
-    cov_stmt = select(Coverage).where(
-        Coverage.policy_id == claim.policy_id,
-        Coverage.claim_category == claim.claim_category,
-    )
-    coverage = db.scalars(cov_stmt).first()
-    if not coverage:
-        return False, [f"Coverage row not found for Claim '{claim.claim_ref}'"]
-
-    trace = assessment.calculation_trace or {}
-    remaining_limit = Decimal(
-        trace.get("remaining_limit", str(coverage.limit_amount - coverage.consumed_amount))
-    )
-    deductible = Decimal(trace.get("deductible", str(coverage.deductible)))
-    copay_percent = Decimal(trace.get("copay_percent", str(coverage.copay_percent)))
-    depreciation = Decimal(trace.get("depreciation", "0.00"))
-    sum_insured = Decimal(trace.get("sum_insured", str(policy.sum_insured)))
-    value_at_risk = Decimal(trace.get("value_at_risk", "0.00"))
-
-    inp = AssessmentInput(
-        product_type=policy.product_type.value,
-        requested_amount=claim.requested_amount,
-        remaining_limit=remaining_limit,
-        assessed_loss=assessment.assessed_loss,
-        deductible=deductible,
-        copay_percent=copay_percent,
-        depreciation=depreciation,
-        sum_insured=sum_insured,
-        value_at_risk=value_at_risk,
-    )
-    out = calculate_assessment_cap(inp)
+    """Replay a stored assessment cap calculation strictly from stored snapshot."""
+    if not assessment.inputs_snapshot:
+        return False, [f"Assessment '{assessment.id}' has empty inputs_snapshot"]
 
     errors: list[str] = []
+    try:
+        inp = deserialize_assessment_snapshot(assessment.inputs_snapshot)
+        out = calculate_assessment_cap(inp)
+    except Exception as exc:
+        return False, [f"Assessment '{assessment.id}' failed to deserialize/evaluate: {exc}"]
+
+    # 1. Compare max eligible amount
     if out.max_eligible_amount != assessment.max_eligible_amount:
         errors.append(
             f"Max eligible amount mismatch: stored='{assessment.max_eligible_amount}', "
             f"replayed='{out.max_eligible_amount}'"
         )
 
+    # 2. Compare product type
+    if out.product_type != assessment.calculation_trace.get("product_type"):
+        errors.append(
+            f"Product type mismatch: stored='{assessment.calculation_trace.get('product_type')}', "
+            f"replayed='{out.product_type}'"
+        )
+
     if verbose and not errors:
         print(
-            f"  [OK] Assessment {assessment.id} for Claim {claim.claim_ref}: max_eligible={assessment.max_eligible_amount}"
+            f"  [OK] Assessment {assessment.id}: max_eligible={assessment.max_eligible_amount} (verified from snapshot)"
         )
 
     return len(errors) == 0, errors
@@ -227,7 +201,7 @@ def run_replay(
     db: Session | None = None,
     db_url: str | None = None,
 ) -> int:
-    """Execute replay verification across stored validation runs and risk evaluations."""
+    """Execute replay verification across stored validation runs, risk evaluations, and assessments."""
     own_session = False
     if db is None:
         if db_url:
@@ -270,7 +244,7 @@ def run_replay(
 
         print(
             f"Starting deterministic replay for {len(val_runs)} validation run(s), "
-            f"{len(risk_evals)} risk evaluation(s), and {len(assessments)} assessment(s)..."
+            f"{len(risk_evals)} risk evaluation(s), and {len(assessments)} assessment(s) from stored snapshots..."
         )
 
         passed_count = 0
@@ -318,7 +292,7 @@ def run_replay(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Deterministic Engine Replay Tool")
+    parser = argparse.ArgumentParser(description="Deterministic Engine Replay Tool (Fix F7)")
     parser.add_argument(
         "--claim-id",
         type=uuid.UUID,
@@ -329,13 +303,13 @@ def main() -> None:
         "--all",
         action="store_true",
         default=True,
-        help="Replay all recorded validation runs and risk evaluations in the database",
+        help="Replay all recorded validation runs, risk evaluations, and assessments in database",
     )
     parser.add_argument(
         "--db-url",
         type=str,
         default=None,
-        help="Database connection URL (e.g. sqlite:///test.db or postgresql://...)",
+        help="Database connection URL",
     )
     parser.add_argument(
         "-v",

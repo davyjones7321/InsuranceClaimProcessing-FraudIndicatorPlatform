@@ -299,6 +299,11 @@ class Claim(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("policy_insured_items.id", ondelete="SET NULL"),
         nullable=True,
     )
+    incident_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
+    )
     claim_category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     incident_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     incident_location: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -307,6 +312,8 @@ class Claim(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+    registered_on: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+    registered_tz: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata")
     registered_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -474,10 +481,13 @@ class ValidationRun(Base, UUIDPrimaryKeyMixin):
     )
     ruleset_version: Mapped[str] = mapped_column(String(32), nullable=False)
     engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    ruleset_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     evaluated_on: Mapped[date] = mapped_column(Date, nullable=False)
     overall_result: Mapped[ValidationOutcome] = mapped_column(
         Enum(ValidationOutcome, name="validation_outcome"), nullable=False
     )
+    inputs_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    calculation_trace: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -520,6 +530,7 @@ class RiskEvaluation(Base, UUIDPrimaryKeyMixin):
     )
     ruleset_version: Mapped[str] = mapped_column(String(32), nullable=False)
     engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    ruleset_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     evaluated_on: Mapped[date] = mapped_column(Date, nullable=False)
     score: Mapped[int] = mapped_column(Integer, nullable=False)
     category: Mapped[RiskCategory] = mapped_column(
@@ -527,6 +538,7 @@ class RiskEvaluation(Base, UUIDPrimaryKeyMixin):
     )
     requires_investigation: Mapped[bool] = mapped_column(Boolean, nullable=False)
     inputs_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    calculation_trace: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -575,9 +587,13 @@ class Assessment(Base, UUIDPrimaryKeyMixin):
     assessor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
+    ruleset_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    ruleset_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     assessed_loss: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     max_eligible_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     eligible_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    inputs_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
     calculation_trace: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     remarks: Mapped[str] = mapped_column(Text, nullable=False)
     supporting_info: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -864,3 +880,20 @@ class AccessLog(Base, UUIDPrimaryKeyMixin):
     actor: Mapped["User | None"] = relationship()
     claim: Mapped["Claim"] = relationship()
     document: Mapped["ClaimDocument | None"] = relationship()
+
+
+class ImportReject(Base, UUIDPrimaryKeyMixin):
+    """Rejection record for master data imports with missing or invalid terms (P5 Task 5)."""
+
+    __tablename__ = "import_rejects"
+
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )

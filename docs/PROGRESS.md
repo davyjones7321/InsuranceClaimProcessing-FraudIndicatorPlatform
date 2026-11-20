@@ -487,3 +487,127 @@
 - **Alembic Migrations**: Passed (`test_alembic_migrations_upgrade_and_downgrade` passed upgrade/downgrade/upgrade cycle on PostgreSQL container).
 - **Traceability Matrix**: Updated in `docs/TRACEABILITY.md` marking R-02 as MECHANICALLY ENFORCED.
 - **Status**: Ready for Owner Review. STOPPED at Phase P4 Gate.
+
+---
+
+## Phase P5: Assessment Engine, Replay, and Snapshots
+
+### Completed Tasks
+
+#### Task 1: Scope A+ Boundary Definition and Excluded Scenarios
+- **Files Created**: `docs/SCOPE.md`
+- **Details**:
+  - Defined A+ core boundary: one claim = one coverage category on an active policy.
+  - Documented explicit rejection and routing of non-A+ scenarios: cross-category settlements, shared deductibles, independent per-item decisions, interim/part payments, salvage netting/recoveries, policy-level aggregate limits, and mid-term endorsements.
+  - Aligned with Decision D5, D12, and D13.
+
+#### Task 2: Assessment Cap Engine and Ordered Formula Steps
+- **Files Changed**: `app/engine/assessment_cap.py`, `app/engine/types.py`
+- **Details**:
+  - Implemented pure deterministic assessment cap engine rejecting floats with `TypeError`.
+  - Enforced strict calculation ordering per product profile:
+    - `HEALTH`: deductible -> copay -> limit cap.
+    - `VEHICLE`: depreciation -> deductible -> limit cap.
+    - `PROPERTY`: coinsurance -> deductible -> limit cap.
+  - Single final rounding with `ROUND_HALF_UP` to 2 decimal places. No intermediate rounding.
+  - Structured step-by-step calculation trace recorded in output.
+- **Verification**: `tests/engine/test_assessment_cap.py` (17/17 passed including Appendix C golden vectors and Hypothesis property tests).
+
+#### Task 3: Typed Component Model for Assessments
+- **Files Changed**: `app/schemas/assessments.py`, `app/engine/types.py`, `app/services/assessment_service.py`
+- **Details**:
+  - Added typed component schemas (`AssessmentComponentCreate`, `AssessmentComponentResponse`, `AssessmentComponentInput`).
+  - Enforced validation rules: `assessed_loss` cannot exceed requested amount, component sums must equal assessed loss, and zeroing an item requires mandatory `zeroed_reason`.
+  - Assessor eligible amount capped at `max_eligible_amount` with `422 Unprocessable Content` on violation.
+
+#### Task 4: Product Profile Registry and Formula Source Tagging
+- **Files Created**: `app/engine/product_profiles.py`
+- **Details**:
+  - Created profile registry for `HEALTH`, `VEHICLE`, and `PROPERTY`.
+  - Unsupported products immediately rejected with `UnsupportedProductError` (no fallback permitted).
+  - Formula definitions tagged with `FORMULA_SOURCE = "ILLUSTRATIVE_DEFAULTS"` pending insurer signoff under Decision D11.
+
+#### Task 5: Coverage Terms Immutability
+- **Files Changed**: `app/api/coverages.py`, `app/schemas/master_data.py`
+- **Details**:
+  - `PUT /api/coverages/{id}` mechanically queries referencing claims and rejects modifications with `HTTP 409 Conflict` once any claim references that coverage.
+  - Explicit coverage terms required without silent defaults.
+
+#### Task 6: Alembic Migration 0006 and Database Models
+- **Files Created / Changed**:
+  - `alembic/versions/0006_assessment_engine_replay_and_snapshots.py`
+  - `app/db/models.py`
+- **Details**:
+  - Added `incident_group_id` (indexed UUID) to `claims`.
+  - Added `registered_on` (Date) and `registered_tz` (String(64)) to `claims`.
+  - Added `ruleset_version`, `engine_version`, `ruleset_hash`, and `inputs_snapshot` to `assessments`.
+  - Added `ruleset_hash`, `inputs_snapshot`, and `calculation_trace` to `validation_runs` and `risk_evaluations`.
+  - Created append-only `import_rejects` table.
+- **Verification**: `tests/integration/test_migrations.py` (Passed).
+
+#### Task 7: Insured Item and Member Verification
+- **Files Changed**: `app/services/claim_service.py`, `app/schemas/claims.py`
+- **Details**:
+  - Claim registration verifies insured items: `VEHICLE` claims require matching insured vehicle item; `PROPERTY` claims require matching insured property item; `HEALTH` claims require matching member item.
+  - Foreign items or items belonging to other policies rejected with `ClaimValidationError`.
+
+#### Task 8: Pure Replay from Stored Snapshots (Fix F7)
+- **Files Created / Changed**:
+  - `scripts/replay.py`
+  - `app/schemas/snapshots.py`
+- **Details**:
+  - Rewrote replay runner to recompute validation runs, risk evaluations, and assessment caps strictly from stored `inputs_snapshot`, `ruleset_version`, and `engine_version`. Live database tables are never queried during replay.
+- **Verification**: `tests/integration/test_replay.py` (Passed).
+
+#### Task 9: Strict Snapshot Content Allowlist and Canary Protection
+- **Files Created**: `app/schemas/snapshots.py`, `tests/engine/test_snapshots_canary.py`
+- **Details**:
+  - Allowlist Pydantic models configure `extra = "forbid"`.
+  - Banned fields: names, exact DOB, addresses, contact details, government IDs, policy numbers, free text, filenames, IP addresses.
+  - Canary test injects distinctive strings into all personal fields and verifies zero PII leaks into snapshots.
+- **Verification**: `tests/engine/test_snapshots_canary.py` (4/4 passed).
+
+#### Task 10: Business Timezone and Date-of-Loss Handling
+- **Files Changed**: `app/main.py`, `app/services/claim_service.py`
+- **Details**:
+  - Application lifespan refuses to start if `settings.BUSINESS_TIMEZONE` does not match recorded claim timezone in database.
+  - Claim registration converts UTC `registered_at` to business calendar date `registered_on` in configured business timezone.
+
+#### Task 11: Release Manifest and Offline Replay Runner
+- **Files Created**: `scripts/release_manifest.py`, `scripts/offline_replay.py`
+- **Details**:
+  - `scripts/release_manifest.py` generates sealed JSON manifest with commit SHA, lockfile SHA-256, Python version, base image digest, ruleset hash, and engine version.
+  - `scripts/offline_replay.py` executes pure engine logic against sealed bundles without network, secrets, or database connections.
+- **Verification**: `tests/integration/test_p5_assessment_replay.py::test_offline_bundle_replay_runner` (Passed).
+
+#### Task 12: A+ Fit Sample Review Protocol and Statistical Report Tool
+- **Files Created**: `docs/SAMPLE_REVIEW_PROTOCOL.md`, `data/sample_review_template.csv`, `scripts/aplus_fit_report.py`
+- **Details**:
+  - Defined 100-claim representative sample review protocol under Decision D13.
+  - Provided reviewer CSV template.
+  - Implemented `scripts/aplus_fit_report.py` calculating Wilson 95% score confidence intervals for count share and value share per product category.
+
+#### Task 13: Phase P5 Integration Verification Suite
+- **Files Created**: `tests/integration/test_p5_assessment_replay.py`
+- **Details**:
+  - Verified business timezone conversion across midnight boundaries.
+  - Verified insured vehicle and property item matching.
+  - Verified coverage edit lock (HTTP 409 Conflict) on claims reference.
+  - Verified component-based assessment, cap calculation, snapshot persistence, and deterministic replay.
+  - Verified offline sealed bundle replay.
+- **Verification**: 6/6 passed.
+
+---
+
+### Phase P5 Gate Summary
+- **Test Suite**: 197 passed in 27.56s across entire project.
+- **Assessment Engine Suite**: 17 passed (`tests/engine/test_assessment_cap.py`).
+- **Canary PII Leak Suite**: 4 passed (`tests/engine/test_snapshots_canary.py`).
+- **P5 Integration Suite**: 6 passed (`tests/integration/test_p5_assessment_replay.py`).
+- **Replay Suite**: 1 passed (`tests/integration/test_replay.py`).
+- **Ruff Lint**: Passed (`All checks passed!`).
+- **Ruff Format**: Passed (`144 files already formatted`).
+- **Mypy**: Passed (`Success: no issues found in 66 source files`).
+- **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
+- **Alembic Migrations**: Passed (`test_alembic_migrations_upgrade_and_downgrade` passed upgrade/downgrade cycle).
+- **Status**: Ready for Owner Review. STOPPED at Phase P5 Gate.

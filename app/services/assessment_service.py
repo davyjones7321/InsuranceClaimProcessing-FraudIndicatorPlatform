@@ -1,5 +1,6 @@
 """Assessment service orchestrating cap calculations, separation of duties, and state transitions."""
 
+import hashlib
 import uuid
 from decimal import Decimal
 
@@ -8,14 +9,16 @@ from sqlalchemy.orm import Session
 
 from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
+from app.config import settings
 from app.db.base import utc_now
 from app.db.lock_utils import set_lock_timeout
 from app.db.models import Assessment, Claim, ClaimStatusHistory, Coverage, Investigation, User
 from app.domain.enums import ClaimStatus, InvestigationStatus, LimitScope, UserRole
 from app.domain.state_machine import validate_transition
 from app.engine.assessment_cap import calculate_assessment_cap
-from app.engine.types import AssessmentInput
+from app.engine.types import AssessmentComponentInput, AssessmentInput
 from app.schemas.assessments import AssessmentCreate
+from app.schemas.snapshots import serialize_assessment_snapshot
 from app.security.rbac import PermissionDeniedError, check_claim_access
 
 
@@ -136,6 +139,16 @@ class AssessmentService:
             payload.value_at_risk if payload.value_at_risk is not None else Decimal("0.00")
         )
 
+        components_input = tuple(
+            AssessmentComponentInput(
+                component_type=c.component_type,
+                claimed_amount=c.claimed_amount,
+                assessed_amount=c.assessed_amount,
+                zeroed_reason=c.zeroed_reason,
+            )
+            for c in payload.components
+        )
+
         assessment_input = AssessmentInput(
             product_type=policy.product_type.value,
             requested_amount=claim.requested_amount,
@@ -146,6 +159,7 @@ class AssessmentService:
             depreciation=depreciation,
             sum_insured=sum_insured,
             value_at_risk=value_at_risk,
+            components=components_input,
         )
 
         # Pure deterministic cap calculation
@@ -161,13 +175,27 @@ class AssessmentService:
         validate_transition(claim.status, ClaimStatus.ASSESSED)
 
         assessment_id = uuid.uuid4()
+        ruleset_ver = settings.ACTIVE_RULESET_VERSION
+        engine_ver = settings.ENGINE_VERSION
+        ruleset_hash = hashlib.sha256(f"assessment_rules_{ruleset_ver}".encode()).hexdigest()
+        inputs_snapshot = serialize_assessment_snapshot(
+            assessment_input,
+            ruleset_version=ruleset_ver,
+            engine_version=engine_ver,
+            ruleset_hash=ruleset_hash,
+        )
+
         assessment = Assessment(
             id=assessment_id,
             claim_id=claim.id,
             assessor_id=actor.id,
+            ruleset_version=ruleset_ver,
+            engine_version=engine_ver,
+            ruleset_hash=ruleset_hash,
             assessed_loss=payload.assessed_loss,
             max_eligible_amount=cap_output.max_eligible_amount,
             eligible_amount=payload.eligible_amount,
+            inputs_snapshot=inputs_snapshot,
             calculation_trace=cap_output.calculation_trace,
             remarks=payload.remarks,
             supporting_info=payload.supporting_info,

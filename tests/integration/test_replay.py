@@ -23,6 +23,7 @@ from app.domain.enums import (
 )
 from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.types import AssessmentInput
+from app.schemas.snapshots import serialize_assessment_snapshot
 from app.security.password import hash_password
 from scripts.replay import run_replay
 
@@ -122,6 +123,9 @@ def test_replay_script_reproduces_all_evaluations(db_session: Session) -> None:
         max_eligible_amount=cap_out.max_eligible_amount,
         eligible_amount=cap_out.max_eligible_amount,
         calculation_trace=cap_out.calculation_trace,
+        inputs_snapshot=serialize_assessment_snapshot(inp),
+        ruleset_version="v1",
+        engine_version="1.0.0",
         remarks="Accurate medical invoices provided.",
     )
     db_session.add(assessment)

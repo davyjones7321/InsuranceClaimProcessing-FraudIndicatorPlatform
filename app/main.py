@@ -29,6 +29,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Validate startup configuration
     if settings.ENV == "production" and settings.DEBUG:
         raise RuntimeError("DEBUG must not be True in production environment")
+
+    # Task 10: Refuse to start if configured business timezone differs from recorded timezone
+    try:
+        from sqlalchemy import select
+
+        from app.db.models import Claim
+        from app.db.session import get_db
+
+        db_dep = app.dependency_overrides.get(get_db, get_db)
+        db_gen = db_dep()
+        db = next(db_gen)
+        try:
+            first_claim = db.scalars(select(Claim).limit(1)).first()
+            if first_claim and first_claim.registered_tz != settings.BUSINESS_TIMEZONE:
+                raise RuntimeError(
+                    f"Configured business timezone '{settings.BUSINESS_TIMEZONE}' does not match "
+                    f"recorded claim timezone '{first_claim.registered_tz}' in database"
+                )
+        finally:
+            try:
+                next(db_gen)
+            except StopIteration:
+                pass
+    except Exception as exc:
+        if isinstance(exc, RuntimeError):
+            raise
+        # During offline migrations or fresh setups, tables may not yet exist
+        pass
+
     yield
 
 

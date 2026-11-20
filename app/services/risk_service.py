@@ -46,6 +46,7 @@ from app.engine.types import (
     RiskInput,
 )
 from app.rules.loader import ACTIVE_RULESET
+from app.schemas.snapshots import compute_ruleset_hash, serialize_risk_snapshot
 from app.security.rbac import PermissionDeniedError, check_claim_access, check_risk_access
 
 
@@ -274,6 +275,10 @@ class RiskService:
         )
         risk_output = evaluate_risk(risk_input)
 
+        active_rules = ruleset or ACTIVE_RULESET
+        ruleset_hash = compute_ruleset_hash(active_rules)
+        risk_snapshot = serialize_risk_snapshot(risk_input, ruleset_hash=ruleset_hash)
+
         # Persist RiskEvaluation row
         eval_id = uuid.uuid4()
         risk_evaluation = RiskEvaluation(
@@ -281,15 +286,13 @@ class RiskService:
             claim_id=claim.id,
             ruleset_version=risk_output.ruleset_version,
             engine_version=risk_output.engine_version,
+            ruleset_hash=ruleset_hash,
             evaluated_on=risk_output.evaluated_on,
             score=risk_output.score,
             category=RiskCategory(risk_output.category.value),
             requires_investigation=risk_output.requires_investigation,
-            inputs_snapshot={
-                "customer_name": risk_input.customer_name,
-                "policy_no": risk_input.policy.policy_no if risk_input.policy else None,
-                "requested_amount": str(claim.requested_amount),
-                "claim_category": claim.claim_category,
+            inputs_snapshot=risk_snapshot,
+            calculation_trace={
                 "score": risk_output.score,
                 "category": risk_output.category.value,
                 "requires_investigation": risk_output.requires_investigation,

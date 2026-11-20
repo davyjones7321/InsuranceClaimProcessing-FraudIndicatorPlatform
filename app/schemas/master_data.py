@@ -42,10 +42,14 @@ class CustomerResponse(CustomerCreate):
 # Coverage Schemas
 class CoverageCreate(BaseModel):
     claim_category: str = Field(..., min_length=1, max_length=64)
-    limit_scope: LimitScope = LimitScope.PER_POLICY_PERIOD
+    limit_scope: LimitScope = Field(
+        ..., description="Explicit limit scope: PER_POLICY_PERIOD or PER_CLAIM"
+    )
     limit_amount: Decimal = Field(..., ge=0)
-    deductible: Decimal = Field(default=Decimal("0.00"), ge=0)
-    copay_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
+    deductible: Decimal = Field(..., ge=0, description="Deductible must be explicit (0.00 if none)")
+    copay_percent: Decimal = Field(
+        ..., ge=0, le=100, description="Copay percent must be explicit (0.00 if none)"
+    )
     waiting_period_days: int = Field(default=0, ge=0)
     conditions: dict[str, Any] | None = None
     is_excluded: bool = False

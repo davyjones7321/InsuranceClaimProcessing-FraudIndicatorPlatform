@@ -22,6 +22,10 @@ class ClaimCreate(BaseModel):
         default=None,
         description="Optional reference to insured vehicle, property, or member item.",
     )
+    incident_group_id: uuid.UUID | None = Field(
+        default=None,
+        description="Optional incident group linking related claims from the same event (D12).",
+    )
     claim_category: Annotated[str, Field(min_length=2, max_length=64)]
     incident_date: date
     incident_location: Annotated[str, Field(min_length=2, max_length=255)]
@@ -67,12 +71,15 @@ class ClaimResponse(BaseModel):
     policy_id: uuid.UUID
     customer_id: uuid.UUID
     insured_item_id: uuid.UUID | None = None
+    incident_group_id: uuid.UUID | None = None
     claim_category: str
     incident_date: date
     incident_location: str
     incident_description: str
     requested_amount: Decimal
     registered_at: datetime
+    registered_on: date
+    registered_tz: str
     registered_by: uuid.UUID
     channel: ClaimChannel
     status: ClaimStatus | str

@@ -184,6 +184,14 @@ class RiskInput:
 
 
 @dataclass(frozen=True)
+class AssessmentComponentInput:
+    component_type: str
+    claimed_amount: Decimal
+    assessed_amount: Decimal
+    zeroed_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class AssessmentInput:
     product_type: str  # HEALTH, VEHICLE, PROPERTY
     requested_amount: Decimal
@@ -194,6 +202,7 @@ class AssessmentInput:
     depreciation: Decimal = Decimal("0.00")
     sum_insured: Decimal = Decimal("0.00")
     value_at_risk: Decimal = Decimal("0.00")
+    components: tuple[AssessmentComponentInput, ...] = ()
 
 
 @dataclass(frozen=True)
