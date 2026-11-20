@@ -383,33 +383,32 @@ def evaluate_risk(risk_input: RiskInput) -> RiskOutput:
     )
 
     # ==========================================
-    # R08: Inconsistent document data
+    # R08: Inconsistent document data (P4 Task 7, Decision D4)
     # ==========================================
     cfg_r08 = indicators_cfg.get("R08", {})
     r08_ver = str(cfg_r08.get("version", "1.0"))
     r08_status = str(cfg_r08.get("status", "PILOT"))
     r08_weight = int(cfg_r08.get("weight", 20))
 
-    norm_cust_name = _normalize_name(risk_input.customer_name)
     inconsistencies: list[dict[str, Any]] = []
 
     for doc in sorted_docs:
+        # R08 uses only VALID (and, if identity-bearing, attested) document metadata
         if doc.status == "VALID":
-            # Check named_person consistency
-            if doc.named_person:
-                norm_doc_name = _normalize_name(doc.named_person)
-                if norm_doc_name and norm_cust_name and norm_doc_name != norm_cust_name:
-                    inconsistencies.append(
-                        {
-                            "document_id": doc.document_id,
-                            "doc_code": doc.doc_code,
-                            "type": "NAME_MISMATCH",
-                            "document_named_person": doc.named_person,
-                            "customer_name": risk_input.customer_name,
-                        }
-                    )
+            # Human identity attestation mismatch (Decision D4, replaces raw string comparison)
+            if (
+                doc.is_identity_attestation_current
+                and doc.identity_attestation_result == "MISMATCH"
+            ) or (not doc.is_identity_bearing and doc.identity_attestation_result == "MISMATCH"):
+                inconsistencies.append(
+                    {
+                        "document_id": doc.document_id,
+                        "doc_code": doc.doc_code,
+                        "type": "IDENTITY_ATTESTATION_MISMATCH",
+                    }
+                )
 
-            # Check pre-incident date anomalies (e.g. document date in future relative to eval_date)
+            # Pre-incident date anomalies: future document date relative to evaluation date
             if doc.document_date and doc.document_date > eval_date:
                 inconsistencies.append(
                     {

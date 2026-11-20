@@ -22,6 +22,7 @@ from app.db.models import (
     Decision,
     Investigation,
     Policy,
+    RequiredDocumentType,
     RiskEvaluation,
     RiskIndicatorResult,
     User,
@@ -156,16 +157,49 @@ class RiskService:
                 is_excluded=coverage.is_excluded,
             )
 
-        document_inputs = tuple(
-            DocumentInput(
-                document_id=str(d.id),
-                doc_code=d.doc_code,
-                status=d.status.value,
-                named_person=d.named_person,
-                document_date=d.document_date,
+        # Required document types for product type to determine identity-bearing docs
+        if policy:
+            req_stmt = select(RequiredDocumentType).where(
+                RequiredDocumentType.product_type == policy.product_type
             )
-            for d in documents
-        )
+            if claim.claim_category:
+                req_stmt = req_stmt.where(
+                    (RequiredDocumentType.claim_category == claim.claim_category)
+                    | (RequiredDocumentType.claim_category.is_(None))
+                )
+            req_doc_map = {r.doc_code: r for r in self.db.scalars(req_stmt).all()}
+        else:
+            req_doc_map = {}
+
+        current_identity_version = customer.identity_version if customer else 1
+
+        doc_inputs_list: list[DocumentInput] = []
+        for d in documents:
+            req_type = req_doc_map.get(d.doc_code)
+            is_id_bearing = req_type.is_identity_bearing if req_type else False
+
+            latest_att = max(d.attestations, key=lambda a: a.rev) if d.attestations else None
+            is_att_current = (
+                latest_att.subject_identity_version == current_identity_version
+                if latest_att
+                else False
+            )
+            att_result = latest_att.result.value if latest_att else None
+
+            doc_inputs_list.append(
+                DocumentInput(
+                    document_id=str(d.id),
+                    doc_code=d.doc_code,
+                    status=d.status.value,
+                    named_person=d.named_person,
+                    document_date=d.document_date,
+                    is_identity_bearing=is_id_bearing,
+                    is_identity_attestation_current=is_att_current,
+                    identity_attestation_result=att_result,
+                )
+            )
+
+        document_inputs = tuple(doc_inputs_list)
 
         historical_inputs = tuple(
             HistoricalClaimInput(
@@ -303,10 +337,18 @@ class RiskService:
                     f"Flagged for investigation: score {risk_output.score} exceeds threshold"
                 )
 
+                # Find prior investigation if any (Task 6: link to previous)
+                prior_inv = self.db.scalars(
+                    select(Investigation)
+                    .where(Investigation.claim_id == claim.id)
+                    .order_by(Investigation.opened_at.desc())
+                ).first()
+
                 # Automatically create Investigation record per Section 11
                 investigation = Investigation(
                     id=uuid.uuid4(),
                     claim_id=claim.id,
+                    previous_investigation_id=prior_inv.id if prior_inv else None,
                     assigned_to=None,
                     assigned_by=actor.id,
                     status=InvestigationStatus.ASSIGNED,

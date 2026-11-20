@@ -226,7 +226,7 @@ def test_document_upload_and_review_unblocks_claim_validation(
     )
     assert uploaded_doc.status == DocumentStatus.PENDING_REVIEW
 
-    # Step 3: Review document as VALID
+    # Step 3: Review document as VALID -> triggers revalidation in same transaction (fix F8)
     from app.schemas.documents import DocumentReviewRequest
 
     reviewed_doc = claim_service.review_document(
@@ -240,10 +240,7 @@ def test_document_upload_and_review_unblocks_claim_validation(
     assert reviewed_doc.status == DocumentStatus.VALID
     db_session.commit()
 
-    # Step 4: Re-run validation -> should transition DOCUMENTS_PENDING -> REGISTERED -> VALIDATED
-    val_run2 = val_service.validate_claim(claim.id, staff, evaluation_date=date(2026, 3, 10))
-    assert val_run2.overall_result == ValidationOutcome.PASS
-
+    # Step 4: Revalidation transitioned DOCUMENTS_PENDING -> REGISTERED -> VALIDATED
     db_session.refresh(claim)
     assert claim.status == ClaimStatus.VALIDATED
 

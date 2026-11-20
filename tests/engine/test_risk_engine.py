@@ -344,51 +344,74 @@ def test_r07_duplicate_suspicion() -> None:
 
 
 def test_r08_inconsistent_document_data() -> None:
-    # Customer name: Alice Smith
-    # Document with named_person = "Bob Johnson" on VALID doc -> Triggered (weight 20)
+    # Document with status="VALID", is_identity_bearing=True, is_identity_attestation_current=True,
+    # identity_attestation_result="MISMATCH" -> Triggered (weight 20)
     mismatch_docs = (
         DocumentInput(
             document_id="doc-1",
-            doc_code="DOC_MED",
+            doc_code="DOC_ID",
             status="VALID",
-            named_person="Bob Johnson",
+            is_identity_bearing=True,
+            is_identity_attestation_current=True,
+            identity_attestation_result="MISMATCH",
             document_date=date(2026, 6, 15),
         ),
     )
-    inp_mismatch = make_risk_input(customer_name="Alice Smith", documents=mismatch_docs)
+    inp_mismatch = make_risk_input(documents=mismatch_docs)
     r08_mis = next(
         r for r in evaluate_risk(inp_mismatch).indicator_results if r.indicator_id == "R08"
     )
     assert r08_mis.triggered
     assert r08_mis.weight_applied == 20
 
-    # Matching name with normalization ("alice smith" vs "Alice Smith.") -> Untriggered
+    # Matching identity attestation ("CONFIRMED") -> Untriggered
     match_docs = (
         DocumentInput(
             document_id="doc-2",
-            doc_code="DOC_MED",
+            doc_code="DOC_ID",
             status="VALID",
-            named_person="alice smith",
+            is_identity_bearing=True,
+            is_identity_attestation_current=True,
+            identity_attestation_result="CONFIRMED",
             document_date=date(2026, 6, 15),
         ),
     )
-    inp_match = make_risk_input(customer_name="Alice Smith", documents=match_docs)
+    inp_match = make_risk_input(documents=match_docs)
     r08_mat = next(r for r in evaluate_risk(inp_match).indicator_results if r.indicator_id == "R08")
     assert not r08_mat.triggered
 
-    # Document marked INVALID -> Name mismatch ignored
+    # Document marked INVALID with MISMATCH -> Ignored (untrusted metadata)
     invalid_docs = (
         DocumentInput(
             document_id="doc-3",
-            doc_code="DOC_MED",
+            doc_code="DOC_ID",
             status="INVALID",
-            named_person="Different Person",
+            is_identity_bearing=True,
+            is_identity_attestation_current=True,
+            identity_attestation_result="MISMATCH",
             document_date=date(2026, 6, 15),
         ),
     )
-    inp_inv = make_risk_input(customer_name="Alice Smith", documents=invalid_docs)
+    inp_inv = make_risk_input(documents=invalid_docs)
     assert not next(
         r for r in evaluate_risk(inp_inv).indicator_results if r.indicator_id == "R08"
+    ).triggered
+
+    # Stale identity attestation (is_identity_attestation_current=False) -> Untriggered
+    stale_docs = (
+        DocumentInput(
+            document_id="doc-4",
+            doc_code="DOC_ID",
+            status="VALID",
+            is_identity_bearing=True,
+            is_identity_attestation_current=False,
+            identity_attestation_result="MISMATCH",
+            document_date=date(2026, 6, 15),
+        ),
+    )
+    inp_stale = make_risk_input(documents=stale_docs)
+    assert not next(
+        r for r in evaluate_risk(inp_stale).indicator_results if r.indicator_id == "R08"
     ).triggered
 
 

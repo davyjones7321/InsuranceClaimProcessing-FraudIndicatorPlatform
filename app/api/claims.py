@@ -20,7 +20,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models import Claim, ClaimDocument, User
+from app.db.models import (
+    Claim,
+    ClaimDocument,
+    Customer,
+    Policy,
+    RequiredDocumentType,
+    User,
+)
 from app.db.session import get_db
 from app.domain.enums import ClaimStatus, UserRole
 from app.domain.state_machine import InvalidStateTransitionError
@@ -33,7 +40,12 @@ from app.schemas.claims import (
     ClaimStatusTransitionRequest,
 )
 from app.schemas.decisions import DecisionCreate, DecisionResponse
-from app.schemas.documents import DocumentResponse, DocumentReviewRequest
+from app.schemas.documents import (
+    DocumentResponse,
+    DocumentReviewRequest,
+    IdentityAttestationCreate,
+    IdentityAttestationResponse,
+)
 from app.schemas.investigations import (
     InvestigationAssignRequest,
     InvestigationCompleteRequest,
@@ -129,6 +141,70 @@ def serialize_risk_evaluation_for_user(eval_run: Any, user: User) -> RiskEvaluat
         resp.inputs_snapshot = {}
         resp.score = 0
     return resp
+
+
+def serialize_document_for_api(
+    doc: ClaimDocument, db: Session, claim: Claim | None = None
+) -> DocumentResponse:
+    """Serialize ClaimDocument with is_identity_bearing and latest_attestation metadata."""
+    if claim is None:
+        claim = db.get(Claim, doc.claim_id)
+    policy = db.get(Policy, claim.policy_id) if claim else None
+    customer = db.get(Customer, claim.customer_id) if claim else None
+
+    is_id_bearing = False
+    if policy:
+        req_doc = db.scalars(
+            select(RequiredDocumentType).where(
+                RequiredDocumentType.product_type == policy.product_type,
+                RequiredDocumentType.doc_code == doc.doc_code,
+            )
+        ).first()
+        if req_doc and req_doc.is_identity_bearing:
+            is_id_bearing = True
+
+    latest_att = max(doc.attestations, key=lambda a: a.rev) if doc.attestations else None
+    att_resp: IdentityAttestationResponse | None = None
+    if latest_att:
+        is_stale = (
+            latest_att.subject_identity_version != customer.identity_version if customer else False
+        )
+        att_resp = IdentityAttestationResponse(
+            document_id=latest_att.document_id,
+            rev=latest_att.rev,
+            prev_rev=latest_att.prev_rev,
+            document_sha256=latest_att.document_sha256,
+            result=latest_att.result,
+            reason_code=latest_att.reason_code,
+            remarks=latest_att.remarks,
+            reviewer_id=latest_att.reviewer_id,
+            reviewer_role=latest_att.reviewer_role,
+            subject_identity_version=latest_att.subject_identity_version,
+            is_current=True,
+            is_stale=is_stale,
+            created_at=latest_att.created_at,
+        )
+
+    return DocumentResponse(
+        id=doc.id,
+        claim_id=doc.claim_id,
+        doc_code=doc.doc_code,
+        file_name=doc.file_name,
+        sha256=doc.sha256,
+        size_bytes=doc.size_bytes,
+        mime_type=doc.mime_type,
+        document_date=doc.document_date,
+        named_person=doc.named_person,
+        status=doc.status,
+        reason_code=doc.reason_code,
+        review_remarks=doc.review_remarks,
+        reviewed_by=doc.reviewed_by,
+        reviewed_at=doc.reviewed_at,
+        uploaded_by=doc.uploaded_by,
+        created_at=doc.created_at,
+        is_identity_bearing=is_id_bearing,
+        latest_attestation=att_resp,
+    )
 
 
 @router.post(
@@ -307,7 +383,14 @@ def transition_claim_status(
     response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Upload claim document",
-    dependencies=[require_roles(UserRole.CUSTOMER, UserRole.STAFF, UserRole.ADMIN)],
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
 )
 async def upload_document(
     claim_id: uuid.UUID,
@@ -361,7 +444,7 @@ async def upload_document(
             document_date=document_date,
             named_person=named_person,
         )
-        return DocumentResponse.model_validate(doc)
+        return serialize_document_for_api(doc, db)
     except FileTooLargeError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)
@@ -408,7 +491,7 @@ def list_claim_documents(
         .where(ClaimDocument.claim_id == claim_id)
         .order_by(ClaimDocument.created_at.desc())
     ).all()
-    return [DocumentResponse.model_validate(d) for d in docs]
+    return [serialize_document_for_api(d, db, claim) for d in docs]
 
 
 @router.get(
@@ -476,7 +559,117 @@ def review_claim_document(
             review_req=payload,
             actor=current_user,
         )
-        return DocumentResponse.model_validate(doc)
+        return serialize_document_for_api(doc, db)
+    except StaleStatusVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ClaimValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/documents/{document_id}/attestations",
+    response_model=IdentityAttestationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit identity attestation revision for document",
+    dependencies=[require_roles(UserRole.ASSESSOR, UserRole.MANAGER)],
+)
+def attest_claim_document_identity(
+    claim_id: uuid.UUID,
+    document_id: uuid.UUID,
+    payload: IdentityAttestationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> IdentityAttestationResponse:
+    """Submit append-only identity attestation revision (Decision D4)."""
+    service = ClaimService(db)
+    try:
+        att = service.attest_document_identity(
+            claim_id=claim_id,
+            document_id=document_id,
+            payload=payload,
+            actor=current_user,
+        )
+        claim = db.get(Claim, claim_id)
+        customer = db.get(Customer, claim.customer_id) if claim else None
+        is_stale = att.subject_identity_version != customer.identity_version if customer else False
+        return IdentityAttestationResponse(
+            document_id=att.document_id,
+            rev=att.rev,
+            prev_rev=att.prev_rev,
+            document_sha256=att.document_sha256,
+            result=att.result,
+            reason_code=att.reason_code,
+            remarks=att.remarks,
+            reviewer_id=att.reviewer_id,
+            reviewer_role=att.reviewer_role,
+            subject_identity_version=att.subject_identity_version,
+            is_current=True,
+            is_stale=is_stale,
+            created_at=att.created_at,
+        )
+    except StaleStatusVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ClaimValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{claim_id}/documents/{document_id}/attestations",
+    response_model=list[IdentityAttestationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List identity attestation revisions for document",
+    dependencies=[
+        require_roles(
+            UserRole.CUSTOMER,
+            UserRole.STAFF,
+            UserRole.ASSESSOR,
+            UserRole.INVESTIGATOR,
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ],
+)
+def list_claim_document_attestations(
+    claim_id: uuid.UUID,
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[IdentityAttestationResponse]:
+    """List append-only identity attestations for a document in revision order."""
+    service = ClaimService(db)
+    try:
+        attestations = service.get_document_attestations(
+            claim_id=claim_id,
+            document_id=document_id,
+            actor=current_user,
+        )
+        claim = db.get(Claim, claim_id)
+        customer = db.get(Customer, claim.customer_id) if claim else None
+        latest_rev = max((a.rev for a in attestations), default=0)
+        results: list[IdentityAttestationResponse] = []
+        for att in attestations:
+            is_cur = att.rev == latest_rev
+            is_stale = (
+                att.subject_identity_version != customer.identity_version if customer else False
+            )
+            results.append(
+                IdentityAttestationResponse(
+                    document_id=att.document_id,
+                    rev=att.rev,
+                    prev_rev=att.prev_rev,
+                    document_sha256=att.document_sha256,
+                    result=att.result,
+                    reason_code=att.reason_code,
+                    remarks=att.remarks,
+                    reviewer_id=att.reviewer_id,
+                    reviewer_role=att.reviewer_role,
+                    subject_identity_version=att.subject_identity_version,
+                    is_current=is_cur,
+                    is_stale=is_stale,
+                    created_at=att.created_at,
+                )
+            )
+        return results
     except ClaimValidationError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

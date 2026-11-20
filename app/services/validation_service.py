@@ -17,6 +17,7 @@ from app.db.models import (
     ClaimDocument,
     ClaimStatusHistory,
     Coverage,
+    Customer,
     Exclusion,
     Policy,
     RequiredDocumentType,
@@ -153,22 +154,45 @@ class ValidationService:
             for e in exclusions
         )
 
-        document_inputs = tuple(
-            DocumentInput(
-                document_id=str(d.id),
-                doc_code=d.doc_code,
-                status=d.status.value,
-                named_person=d.named_person,
-                document_date=d.document_date,
+        customer = self.db.get(Customer, claim.customer_id)
+        current_identity_version = customer.identity_version if customer else 1
+
+        req_doc_map = {r.doc_code: r for r in req_docs}
+
+        doc_inputs_list: list[DocumentInput] = []
+        for d in documents:
+            req_type = req_doc_map.get(d.doc_code)
+            is_id_bearing = req_type.is_identity_bearing if req_type else False
+
+            latest_att = max(d.attestations, key=lambda a: a.rev) if d.attestations else None
+            is_att_current = (
+                latest_att.subject_identity_version == current_identity_version
+                if latest_att
+                else False
             )
-            for d in documents
-        )
+            att_result = latest_att.result.value if latest_att else None
+
+            doc_inputs_list.append(
+                DocumentInput(
+                    document_id=str(d.id),
+                    doc_code=d.doc_code,
+                    status=d.status.value,
+                    named_person=d.named_person,
+                    document_date=d.document_date,
+                    is_identity_bearing=is_id_bearing,
+                    is_identity_attestation_current=is_att_current,
+                    identity_attestation_result=att_result,
+                )
+            )
+
+        document_inputs = tuple(doc_inputs_list)
 
         req_doc_inputs = tuple(
             RequiredDocumentTypeInput(
                 doc_code=r.doc_code,
                 name=r.name,
                 is_mandatory=r.is_mandatory,
+                is_identity_bearing=r.is_identity_bearing,
             )
             for r in req_docs
         )
@@ -205,8 +229,12 @@ class ValidationService:
         check_claim_access(actor, claim)
 
         # State machine check:
-        # If in DOCUMENTS_PENDING or VALIDATION_FAILED, transition to REGISTERED first per state machine
-        if claim.status in (ClaimStatus.DOCUMENTS_PENDING, ClaimStatus.VALIDATION_FAILED):
+        # If in DOCUMENTS_PENDING, VALIDATION_FAILED, or INFO_REQUESTED, transition to REGISTERED first per state machine
+        if claim.status in (
+            ClaimStatus.DOCUMENTS_PENDING,
+            ClaimStatus.VALIDATION_FAILED,
+            ClaimStatus.INFO_REQUESTED,
+        ):
             old_st = claim.status
             validate_transition(old_st, ClaimStatus.REGISTERED)
             claim.status = ClaimStatus.REGISTERED
@@ -238,7 +266,7 @@ class ValidationService:
             self.db.flush()
         elif claim.status != ClaimStatus.REGISTERED:
             raise ValidationServiceError(
-                f"Cannot validate claim with status '{claim.status.value}'. Must be REGISTERED, DOCUMENTS_PENDING, or VALIDATION_FAILED."
+                f"Cannot validate claim with status '{claim.status.value}'. Must be REGISTERED, DOCUMENTS_PENDING, VALIDATION_FAILED, or INFO_REQUESTED."
             )
 
         # Build validation input and evaluate deterministically

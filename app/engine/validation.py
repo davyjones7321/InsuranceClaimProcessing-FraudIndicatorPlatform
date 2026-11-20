@@ -609,23 +609,57 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
             continue
 
         attached_docs = docs_by_code.get(req.doc_code, [])
-        has_valid = any(d.status == "VALID" for d in attached_docs)
+        is_identity_bearing = req.is_identity_bearing or any(
+            d.is_identity_bearing for d in attached_docs
+        )
+
+        if is_identity_bearing:
+            # Identity-bearing documents require status VALID and a current CONFIRMED attestation
+            has_valid = any(
+                d.status == "VALID"
+                and d.is_identity_attestation_current
+                and d.identity_attestation_result == "CONFIRMED"
+                for d in attached_docs
+            )
+        else:
+            has_valid = any(d.status == "VALID" for d in attached_docs)
+
         if has_valid:
             doc_type_evaluations[req.doc_code] = "VALID"
             continue
 
-        # Check why it's not valid: missing, pending review, or invalid (Section B.15)
+        # Check why it's not valid: missing, pending review, or invalid (P4 Task 1 & 5)
         if not attached_docs:
-            code = cfg_v13.get("reason_code_missing", "DOCUMENTS_MISSING")
+            code = cfg_v13.get("reason_code_missing", "DOCUMENT_MISSING")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) is missing"
-        elif any(d.status == "PENDING_REVIEW" for d in attached_docs):
+        elif is_identity_bearing and any(
+            d.is_identity_attestation_current and d.identity_attestation_result == "MISMATCH"
+            for d in attached_docs
+        ):
+            code = cfg_v13.get("reason_code_invalid", "DOCUMENT_INVALID")
+            blocked_reason = (
+                f"Mandatory document '{req.name}' ({req.doc_code}) identity attestation mismatch"
+            )
+        elif any(d.status == "PENDING_REVIEW" for d in attached_docs) or (
+            is_identity_bearing
+            and any(
+                d.status == "VALID"
+                and (not d.is_identity_attestation_current or d.identity_attestation_result is None)
+                for d in attached_docs
+            )
+        ):
             code = cfg_v13.get("reason_code_pending", "DOCUMENT_PENDING_REVIEW")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) is pending review"
-        elif all(d.status == "INVALID" for d in attached_docs):
+        elif all(d.status == "INVALID" for d in attached_docs) or (
+            is_identity_bearing
+            and any(
+                d.identity_attestation_result in ("MISMATCH", "UNCERTAIN") for d in attached_docs
+            )
+        ):
             code = cfg_v13.get("reason_code_invalid", "DOCUMENT_INVALID")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) was marked invalid"
         else:
-            code = cfg_v13.get("reason_code_missing", "DOCUMENTS_MISSING")
+            code = cfg_v13.get("reason_code_missing", "DOCUMENT_MISSING")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) is not valid"
 
         doc_type_evaluations[req.doc_code] = code

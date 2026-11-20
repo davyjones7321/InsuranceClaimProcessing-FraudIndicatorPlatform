@@ -17,6 +17,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    PrimaryKeyConstraint,
     SmallInteger,
     String,
     Text,
@@ -28,6 +29,7 @@ from sqlalchemy.types import JSON
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, utc_now
 from app.domain.enums import (
+    AttestationResult,
     ClaimChannel,
     ClaimStatus,
     CoverageLedgerEntryType,
@@ -79,6 +81,9 @@ class Customer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
     address: Mapped[str] = mapped_column(Text, nullable=False)
     state_region: Mapped[str] = mapped_column(String(128), nullable=False)
+    identity_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
     source_system: Mapped[str | None] = mapped_column(String(64), nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
@@ -348,6 +353,9 @@ class RequiredDocumentType(Base, UUIDPrimaryKeyMixin):
     doc_code: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     is_mandatory: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_identity_bearing: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -391,6 +399,71 @@ class ClaimDocument(Base, UUIDPrimaryKeyMixin):
 
     # Relationships
     claim: Mapped["Claim"] = relationship(back_populates="documents")
+    attestations: Mapped[list["DocumentIdentityAttestation"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentIdentityAttestation.rev",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("id", "sha256", name="uq_claim_document_id_sha256"),
+        CheckConstraint(
+            "status != 'INVALID' OR (reason_code IS NOT NULL AND review_remarks IS NOT NULL)",
+            name="chk_claim_document_invalid_reason_remarks",
+        ),
+    )
+
+
+class DocumentIdentityAttestation(Base):
+    """Append-only revision table for human document identity attestations (P4 Task 5, Decision D4)."""
+
+    __tablename__ = "document_identity_attestations"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    rev: Mapped[int] = mapped_column(Integer, nullable=False)
+    prev_rev: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    document_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[AttestationResult] = mapped_column(
+        Enum(AttestationResult, name="attestation_result"), nullable=False
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    reviewer_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_identity_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("document_id", "rev", name="pk_doc_identity_attestation"),
+        ForeignKeyConstraint(
+            ["document_id", "prev_rev"],
+            ["document_identity_attestations.document_id", "document_identity_attestations.rev"],
+            name="fk_doc_attestation_prev_rev",
+        ),
+        ForeignKeyConstraint(
+            ["document_id", "document_sha256"],
+            ["claim_documents.id", "claim_documents.sha256"],
+            name="fk_doc_attestation_doc_sha256",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "(rev = 1 AND prev_rev IS NULL) OR (rev > 1 AND prev_rev IS NOT NULL AND prev_rev = rev - 1)",
+            name="chk_doc_attestation_rev_seq",
+        ),
+        CheckConstraint(
+            "result = 'CONFIRMED' OR (result IN ('MISMATCH', 'UNCERTAIN') AND reason_code IS NOT NULL AND remarks IS NOT NULL)",
+            name="chk_doc_attestation_reason_remarks",
+        ),
+    )
+
+    document: Mapped["ClaimDocument"] = relationship(
+        back_populates="attestations", foreign_keys=[document_id]
+    )
+    reviewer: Mapped["User"] = relationship()
 
 
 class ValidationRun(Base, UUIDPrimaryKeyMixin):

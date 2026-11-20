@@ -15,6 +15,8 @@ from app.db.models import (
     ClaimDocument,
     ClaimStatusHistory,
     Coverage,
+    Customer,
+    DocumentIdentityAttestation,
     Policy,
     PolicyInsuredItem,
     User,
@@ -29,7 +31,7 @@ from app.domain.enums import (
 )
 from app.domain.state_machine import validate_transition
 from app.schemas.claims import ClaimCreate, ClaimStatusTransitionRequest
-from app.schemas.documents import DocumentReviewRequest
+from app.schemas.documents import DocumentReviewRequest, IdentityAttestationCreate
 from app.security.access_log import log_access
 from app.security.rbac import (
     PermissionDeniedError,
@@ -225,24 +227,43 @@ class ClaimService:
         document_date: date | None = None,
         named_person: str | None = None,
     ) -> ClaimDocument:
-        """Upload and attach a document with superseding and audit logging."""
+        """Upload and attach a document with superseding, audit logging, and transactional revalidation."""
         claim = self.db.get(Claim, claim_id)
         if not claim:
             raise ClaimValidationError(f"Claim '{claim_id}' not found")
 
+        if claim.status in (ClaimStatus.APPROVED, ClaimStatus.REJECTED, ClaimStatus.WITHDRAWN):
+            raise ClaimValidationError(
+                f"Cannot upload documents for claim in terminal status '{claim.status.value}'"
+            )
+
         # Object-level check: customers can only upload to own claims; staff to registered/assigned
         check_claim_access(actor, claim, action="MUTATE")
 
-        # Section B.16: Superseding. Replacing prior VALID/PENDING_REVIEW marks prior row SUPERSEDED
+        # Section B.16: Superseding. Replacing prior row marks prior row SUPERSEDED
         existing_docs = self.db.scalars(
             select(ClaimDocument).where(
                 ClaimDocument.claim_id == claim_id,
                 ClaimDocument.doc_code == doc_code,
-                ClaimDocument.status.in_([DocumentStatus.PENDING_REVIEW, DocumentStatus.VALID]),
+                ClaimDocument.status != DocumentStatus.SUPERSEDED,
             )
         ).all()
         for doc in existing_docs:
             doc.status = DocumentStatus.SUPERSEDED
+            write_audit_log(
+                db=self.db,
+                action="DOCUMENT_SUPERSEDED",
+                entity_type="ClaimDocument",
+                entity_id=str(doc.id),
+                actor_role=actor.role.value,
+                actor_id=actor.id,
+                claim_id=claim_id,
+                event_data={
+                    "doc_code": doc.doc_code,
+                    "old_document_id": str(doc.id),
+                    "document_sha256": doc.sha256,
+                },
+            )
 
         # Store binary securely via storage adapter
         storage_key, sha256_hash, size_bytes = self.storage.store(
@@ -286,6 +307,18 @@ class ClaimService:
             },
         )
         self.db.flush()
+
+        # Revalidation (fix F8): Upload and replacement trigger revalidation in same transaction
+        if claim.status in (
+            ClaimStatus.REGISTERED,
+            ClaimStatus.DOCUMENTS_PENDING,
+            ClaimStatus.VALIDATION_FAILED,
+            ClaimStatus.INFO_REQUESTED,
+        ):
+            from app.services.validation_service import ValidationService
+
+            ValidationService(self.db).validate_claim(claim_id=claim_id, actor=actor)
+
         return new_doc
 
     def review_document(
@@ -318,6 +351,12 @@ class ClaimService:
         if not doc:
             raise ClaimValidationError(f"Document '{document_id}' not found on claim '{claim_id}'")
 
+        if doc.status == DocumentStatus.SUPERSEDED:
+            raise ClaimValidationError("Cannot review superseded document")
+
+        if review_req.status == DocumentStatus.SUPERSEDED:
+            raise ClaimValidationError("Cannot set document status to SUPERSEDED")
+
         # Separation of duties: Reviewer cannot be the uploader (P1 task 8, D8)
         check_separation_of_duties(actor, claim, action="REVIEW_DOCUMENT", document=doc)
 
@@ -345,7 +384,167 @@ class ClaimService:
             },
         )
         self.db.flush()
+
+        # If attestation is attached to review request
+        if review_req.attestation:
+            self.attest_document_identity(
+                claim_id=claim_id,
+                document_id=document_id,
+                payload=review_req.attestation,
+                actor=actor,
+            )
+
+        # Revalidation (fix F8): Review triggers revalidation in the same transaction
+        if claim.status in (
+            ClaimStatus.REGISTERED,
+            ClaimStatus.DOCUMENTS_PENDING,
+            ClaimStatus.VALIDATION_FAILED,
+            ClaimStatus.INFO_REQUESTED,
+        ):
+            from app.services.validation_service import ValidationService
+
+            ValidationService(self.db).validate_claim(claim_id=claim_id, actor=actor)
+
         return doc
+
+    def attest_document_identity(
+        self,
+        claim_id: uuid.UUID,
+        document_id: uuid.UUID,
+        payload: IdentityAttestationCreate,
+        actor: User,
+    ) -> DocumentIdentityAttestation:
+        """Submit append-only identity attestation revision for an identity-bearing document (Decision D4)."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise ClaimValidationError(f"Claim '{claim_id}' not found")
+
+        check_claim_access(actor, claim, action="MUTATE")
+
+        if actor.role not in (UserRole.ASSESSOR, UserRole.MANAGER):
+            raise PermissionDeniedError(
+                f"Role '{actor.role.value}' does not have identity attestation permission (D8)"
+            )
+
+        # Lock document row
+        stmt = select(ClaimDocument).where(
+            ClaimDocument.claim_id == claim_id,
+            ClaimDocument.id == document_id,
+        )
+        bind = self.db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            stmt = stmt.with_for_update()
+
+        doc = self.db.scalars(stmt).first()
+        if not doc:
+            raise ClaimValidationError(f"Document '{document_id}' not found on claim '{claim_id}'")
+
+        if doc.status == DocumentStatus.SUPERSEDED:
+            raise ClaimValidationError("Cannot attest superseded document")
+
+        # Separation of duties: Reviewer cannot be uploader
+        check_separation_of_duties(actor, claim, action="REVIEW_DOCUMENT", document=doc)
+
+        # Fetch current latest revision for document
+        latest_att = self.db.scalars(
+            select(DocumentIdentityAttestation)
+            .where(DocumentIdentityAttestation.document_id == document_id)
+            .order_by(DocumentIdentityAttestation.rev.desc())
+        ).first()
+
+        curr_rev = latest_att.rev if latest_att else 0
+        if payload.expected_rev != curr_rev:
+            raise StaleStatusVersionError(
+                f"Attestation revision conflict: expected rev {payload.expected_rev}, but current rev is {curr_rev}"
+            )
+
+        # Get subject's current identity version
+        customer = self.db.get(Customer, claim.customer_id)
+        subject_id_version = customer.identity_version if customer else 1
+
+        new_rev = curr_rev + 1
+        prev_rev = curr_rev if curr_rev > 0 else None
+
+        attestation = DocumentIdentityAttestation(
+            document_id=document_id,
+            rev=new_rev,
+            prev_rev=prev_rev,
+            document_sha256=doc.sha256,
+            result=payload.result,
+            reason_code=payload.reason_code,
+            remarks=payload.remarks,
+            reviewer_id=actor.id,
+            reviewer_role=actor.role.value,
+            subject_identity_version=subject_id_version,
+            created_at=utc_now(),
+        )
+        self.db.add(attestation)
+
+        # Write audit log for identity attestation
+        write_audit_log(
+            db=self.db,
+            action="IDENTITY_ATTESTED",
+            entity_type="DocumentIdentityAttestation",
+            entity_id=f"{document_id}:{new_rev}",
+            actor_role=actor.role.value,
+            actor_id=actor.id,
+            claim_id=claim_id,
+            event_data={
+                "document_id": str(document_id),
+                "rev": new_rev,
+                "prev_rev": prev_rev,
+                "document_sha256": doc.sha256,
+                "result": payload.result.value,
+                "reason_code": payload.reason_code,
+                "remarks_sha256": hash_free_text(payload.remarks),
+                "reviewer_role": actor.role.value,
+                "subject_identity_version": subject_id_version,
+            },
+        )
+        self.db.flush()
+
+        # Revalidation (fix F8): Attestation change triggers revalidation
+        if claim.status in (
+            ClaimStatus.REGISTERED,
+            ClaimStatus.DOCUMENTS_PENDING,
+            ClaimStatus.VALIDATION_FAILED,
+            ClaimStatus.INFO_REQUESTED,
+        ):
+            from app.services.validation_service import ValidationService
+
+            ValidationService(self.db).validate_claim(claim_id=claim_id, actor=actor)
+
+        return attestation
+
+    def get_document_attestations(
+        self,
+        claim_id: uuid.UUID,
+        document_id: uuid.UUID,
+        actor: User,
+    ) -> list[DocumentIdentityAttestation]:
+        """List append-only identity attestations for a document in revision order."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise ClaimValidationError(f"Claim '{claim_id}' not found")
+
+        check_claim_access(actor, claim, action="READ")
+
+        doc = self.db.scalars(
+            select(ClaimDocument).where(
+                ClaimDocument.claim_id == claim_id,
+                ClaimDocument.id == document_id,
+            )
+        ).first()
+        if not doc:
+            raise ClaimValidationError(f"Document '{document_id}' not found on claim '{claim_id}'")
+
+        return list(
+            self.db.scalars(
+                select(DocumentIdentityAttestation)
+                .where(DocumentIdentityAttestation.document_id == document_id)
+                .order_by(DocumentIdentityAttestation.rev.asc())
+            ).all()
+        )
 
     def get_document_for_download(
         self, claim_id: uuid.UUID, document_id: uuid.UUID, actor: User

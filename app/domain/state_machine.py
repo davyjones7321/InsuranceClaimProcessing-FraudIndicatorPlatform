@@ -45,12 +45,22 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     ClaimStatus.VALIDATED: frozenset(
         {
             ClaimStatus.RISK_EVALUATED,
+            ClaimStatus.RISK_DATA_PENDING,
+        }
+    ),
+    ClaimStatus.RISK_DATA_PENDING: frozenset(
+        {
+            ClaimStatus.VALIDATED,  # Data completed, re-evaluate
+            ClaimStatus.READY_FOR_ASSESSMENT,  # Manager completeness waiver
+            ClaimStatus.REJECTED,
+            ClaimStatus.WITHDRAWN,
         }
     ),
     ClaimStatus.RISK_EVALUATED: frozenset(
         {
             ClaimStatus.UNDER_INVESTIGATION,  # Score >= threshold
             ClaimStatus.READY_FOR_ASSESSMENT,  # Clean / not flagged
+            ClaimStatus.RISK_DATA_PENDING,  # Incomplete risk data
         }
     ),
     ClaimStatus.UNDER_INVESTIGATION: frozenset(

@@ -381,3 +381,109 @@
 - **Alembic Migrations**: Passed (`test_alembic_migrations_upgrade_and_downgrade` passed upgrade/downgrade/upgrade cycle).
 - **Traceability Matrix**: Updated in `docs/TRACEABILITY.md` with R-10, R-11, R-18 mechanical enforcement details.
 - **Status**: Ready for Owner Review. STOPPED at Phase P3 Gate (commit `f8d453b`).
+
+---
+
+## Phase P4: Documents and claim lifecycle
+
+### Task Log
+
+#### Task 1: Document Lifecycle and Identity Attestation Schema (Fix F8, Decision D4)
+- **Files Created / Changed**:
+  - `alembic/versions/0005_document_lifecycle_and_identity_attestation.py`
+  - `app/db/models.py`
+  - `app/db/__init__.py`
+- **Details**:
+  - Added `Customer.identity_version` (integer version counter starting at 1, incremented on identity profile updates).
+  - Added `RequiredDocumentType.is_identity_bearing` boolean flag.
+  - Added unique constraint `(id, sha256)` on `claim_documents` to support immutable composite foreign keys.
+  - Added DB check constraint `chk_claim_document_invalid_reason_remarks` requiring `reason_code` and `review_remarks` when `status = 'INVALID'`.
+  - Added `document_identity_attestations` append-only revision table keyed `(document_id, rev)` with:
+    - Composite self-referencing FK `(document_id, prev_rev)` -> `(document_id, rev)` to guarantee sequential revision trees.
+    - Composite FK `(document_id, document_sha256)` -> `(claim_documents.id, sha256)` binding attestation immutably to exact file content.
+    - Check constraint `chk_doc_attestation_rev_seq`: `(rev = 1 AND prev_rev IS NULL) OR (rev > 1 AND prev_rev IS NOT NULL AND prev_rev = rev - 1)`.
+    - Check constraint `chk_doc_attestation_reason_remarks`: `result = 'CONFIRMED' OR (result IN ('MISMATCH', 'UNCERTAIN') AND reason_code IS NOT NULL AND remarks IS NOT NULL)`.
+    - Reviewer snapshot: `reviewer_id`, `reviewer_role`, `subject_identity_version`.
+
+#### Task 2: Domain Enums and Complete State Machine (Decision D4, D8)
+- **Files Changed**:
+  - `app/domain/enums.py`
+  - `app/domain/state_machine.py`
+  - `tests/unit/test_state_machine.py`
+- **Details**:
+  - Added `ClaimStatus.RISK_DATA_PENDING` and `AttestationResult` enum (`CONFIRMED`, `MISMATCH`, `UNCERTAIN`).
+  - Added missing state edges in `ALLOWED_TRANSITIONS`:
+    - `DOCUMENTS_PENDING -> REJECTED` (human decision with mandatory remarks and reason code).
+    - `READY_FOR_ASSESSMENT -> REJECTED` and `READY_FOR_ASSESSMENT -> INFO_REQUESTED`.
+    - `INFO_REQUESTED -> REGISTERED` (claimant re-evaluation loop).
+    - `RISK_DATA_PENDING` transitions to `VALIDATED`, `READY_FOR_ASSESSMENT`, `REJECTED`, `WITHDRAWN`.
+- **Verification**: `tests/unit/test_state_machine.py::test_exhaustive_state_transitions` verified all pairs of states (Passed 2/2).
+
+#### Task 3: Pure Engine Verification Rules V13 and R08 (Decision D4)
+- **Files Changed**:
+  - `app/engine/types.py`
+  - `app/engine/validation.py`
+  - `app/engine/risk.py`
+  - `tests/engine/test_validation_engine.py`
+  - `tests/engine/test_risk_engine.py`
+- **Details**:
+  - Rule V13: Requires status `VALID` for non-identity documents. For identity-bearing documents, requires `VALID` + current non-stale `CONFIRMED` attestation. Emits typed reason codes `DOCUMENT_MISSING`, `DOCUMENT_PENDING_REVIEW`, and `DOCUMENT_INVALID`. If only V13 fails, returns `BLOCKED_DOCS`.
+  - Rule R08: Reads human identity attestation results instead of raw name comparison. Only `VALID` document metadata is trusted. Stale or unreviewed document metadata cannot trigger R08.
+
+#### Task 4: Transactional Revalidation (Fix F8)
+- **Files Changed**:
+  - `app/services/claim_service.py`
+  - `app/services/validation_service.py`
+- **Details**:
+  - Upload, replacement, review, and attestation trigger `ValidationService.validate_claim` in the same transaction with row-level claim locking.
+  - Automatically transitions claims between `DOCUMENTS_PENDING`, `REGISTERED`, `VALIDATION_FAILED`, and `VALIDATED`.
+
+#### Task 5: Decision D4 Identity Attestation Service and Endpoints
+- **Files Changed**:
+  - `app/schemas/documents.py`
+  - `app/schemas/__init__.py`
+  - `app/audit/schema.py`
+  - `app/api/claims.py`
+  - `app/services/claim_service.py`
+- **Details**:
+  - Added `IdentityAttestationCreate` and `IdentityAttestationResponse` Pydantic schemas.
+  - Exposed `POST /api/claims/{claim_id}/documents/{document_id}/attestations` and `GET /api/claims/{claim_id}/documents/{document_id}/attestations`.
+  - Enforced separation of duties: uploader cannot review or attest their own uploaded document.
+  - Enforced role matrix: Assessor and Manager only (D8: customer and staff return 403).
+  - Enforced optimistic concurrency: `expected_rev` check returns HTTP 409 Conflict on lost races.
+  - Document replacement creates new row, marks prior row `SUPERSEDED`, and audits `DOCUMENT_SUPERSEDED`. Prior attestations never carry over.
+
+#### Task 6: Investigation Chaining and Stale Claims Reporting
+- **Files Created / Changed**:
+  - `app/services/risk_service.py`
+  - `scripts/stale_claims_report.py`
+- **Details**:
+  - `RiskService.evaluate_claim`: When re-evaluating in `INFO_REQUESTED` requiring investigation, sets `previous_investigation_id = prior_inv.id` linking to previous investigation.
+  - `scripts/stale_claims_report.py`: Strictly read-only CLI and helper `get_stale_claims` listing non-final claims aging >= 30 days without mutating database state.
+
+#### Task 7: Comprehensive Phase P4 Integration Verification Suite
+- **Files Created**: `tests/integration/test_p4_document_lifecycle.py`
+- **Execution Results**:
+  - `test_document_replacement_and_superseding_history`: Passed.
+  - `test_identity_attestation_revision_linearity_and_concurrency`: Passed.
+  - `test_db_level_attestation_sequence_check_constraint`: Passed.
+  - `test_identity_attestation_stale_detection_on_customer_version_increment`: Passed.
+  - `test_separation_of_duties_uploader_cannot_review_or_attest`: Passed.
+  - `test_role_matrix_for_document_review_and_attestation`: Passed.
+  - `test_invalid_and_mismatch_require_reason_code_and_remarks`: Passed.
+  - `test_r08_isolation_from_invalid_documents_and_stale_attestations`: Passed.
+  - `test_stale_claims_report_is_strictly_read_only`: Passed.
+
+---
+
+### Phase P4 Gate Summary
+- **Test Suite**: 180 passed in 49.35s across entire project.
+- **P4 Verification Suite**: 9 passed in 2.66s (`tests/integration/test_p4_document_lifecycle.py`).
+- **State Machine Suite**: 2 passed in 0.64s (`tests/unit/test_state_machine.py`).
+- **Ruff Lint**: Passed (`All checks passed!`).
+- **Ruff Format**: Passed (134 files already formatted).
+- **Mypy**: Passed (`Success: no issues found in 64 source files`).
+- **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
+- **Alembic Migrations**: Passed (`test_alembic_migrations_upgrade_and_downgrade` passed upgrade/downgrade/upgrade cycle on PostgreSQL container).
+- **Traceability Matrix**: Updated in `docs/TRACEABILITY.md` marking R-02 as MECHANICALLY ENFORCED.
+- **Status**: Ready for Owner Review. STOPPED at Phase P4 Gate.

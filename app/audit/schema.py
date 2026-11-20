@@ -176,6 +176,32 @@ ACTION_SCHEMAS: dict[str, frozenset[str]] = {
     "DOCUMENT_REVIEWED": frozenset(
         {"doc_code", "status", "reason_code", "review_status", "remarks_sha256"}
     ),
+    "IDENTITY_ATTESTED": frozenset(
+        {
+            "document_id",
+            "rev",
+            "prev_rev",
+            "document_sha256",
+            "result",
+            "reason_code",
+            "remarks_sha256",
+            "reviewer_role",
+            "subject_identity_version",
+        }
+    ),
+    "DOCUMENT_IDENTITY_ATTESTED": frozenset(
+        {
+            "document_id",
+            "rev",
+            "prev_rev",
+            "document_sha256",
+            "result",
+            "reason_code",
+            "remarks_sha256",
+            "reviewer_role",
+            "subject_identity_version",
+        }
+    ),
     "SENSITIVE_DOCUMENT_DOWNLOADED": frozenset({"doc_code", "sha256", "file_name_sha256"}),
     "VALIDATION_RUN": frozenset(
         {

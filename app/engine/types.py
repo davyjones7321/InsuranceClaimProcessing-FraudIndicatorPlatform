@@ -86,6 +86,9 @@ class DocumentInput:
     status: str  # VALID, INVALID, PENDING_REVIEW, SUPERSEDED
     named_person: str | None = None
     document_date: date | None = None
+    identity_attestation_result: str | None = None  # CONFIRMED, MISMATCH, UNCERTAIN, None
+    is_identity_attestation_current: bool = False
+    is_identity_bearing: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,7 @@ class RequiredDocumentTypeInput:
     doc_code: str
     name: str
     is_mandatory: bool
+    is_identity_bearing: bool = False
 
 
 @dataclass(frozen=True)
