@@ -113,6 +113,7 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("10.00"),
         waiting_period_days=30,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
 
     req_doc = RequiredDocumentType(

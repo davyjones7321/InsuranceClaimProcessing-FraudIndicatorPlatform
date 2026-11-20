@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     SEPARATION_OF_DUTIES_ENABLED: bool = True
     MANAGER_APPROVAL_THRESHOLD: Decimal = Decimal("500000.00")
     MIN_DECISION_REMARKS_LENGTH: int = 20
+    REQUIRE_MANAGER_WHEN_CAPPED: bool = False
+    LOCK_TIMEOUT_SECONDS: int = 5
 
     # Upload configuration
     UPLOAD_MAX_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB

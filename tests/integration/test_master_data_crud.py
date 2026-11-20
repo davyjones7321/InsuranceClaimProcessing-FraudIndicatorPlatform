@@ -189,6 +189,7 @@ def test_policy_and_coverage_crud(
                 "deductible": "2000.00",
                 "copay_percent": "10.00",
                 "waiting_period_days": 30,
+                "limit_exceeded_behavior": "CAP",
             }
         ],
         "exclusions": [
@@ -228,6 +229,7 @@ def test_policy_and_coverage_crud(
             "limit_amount": "200000.00",
             "deductible": "5000.00",
             "copay_percent": "15.00",
+            "limit_exceeded_behavior": "CAP",
         },
     )
     assert res.status_code == 201

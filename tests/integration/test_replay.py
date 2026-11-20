@@ -80,6 +80,7 @@ def test_replay_script_reproduces_all_evaluations(db_session: Session) -> None:
         copay_percent=Decimal("10.00"),
         waiting_period_days=0,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
     db_session.add(coverage)
     db_session.flush()

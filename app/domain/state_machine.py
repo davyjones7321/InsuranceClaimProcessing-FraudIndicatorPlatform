@@ -89,9 +89,18 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
             ClaimStatus.WITHDRAWN,
         }
     ),
-    # Final states: no outgoing transitions by default
-    ClaimStatus.APPROVED: frozenset(),
-    ClaimStatus.REJECTED: frozenset(),
+    # Reopen/correction per Decision D1: manager-only transition to READY_FOR_ASSESSMENT
+    ClaimStatus.APPROVED: frozenset(
+        {
+            ClaimStatus.READY_FOR_ASSESSMENT,
+        }
+    ),
+    ClaimStatus.REJECTED: frozenset(
+        {
+            ClaimStatus.READY_FOR_ASSESSMENT,
+        }
+    ),
+    # Terminal state: no outgoing transitions
     ClaimStatus.WITHDRAWN: frozenset(),
 }
 

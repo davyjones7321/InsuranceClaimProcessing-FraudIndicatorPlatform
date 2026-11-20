@@ -136,6 +136,10 @@ class ValidationService:
                 copay_percent=c.copay_percent,
                 waiting_period_days=c.waiting_period_days,
                 is_excluded=c.is_excluded,
+                limit_exceeded_behavior=c.limit_exceeded_behavior,
+                limit_scope=c.limit_scope.value
+                if hasattr(c.limit_scope, "value")
+                else str(c.limit_scope),
             )
             for c in coverages
         )

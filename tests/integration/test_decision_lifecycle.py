@@ -123,6 +123,7 @@ def decision_setup(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("0.00"),
         waiting_period_days=0,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
     db_session.add(coverage)
     db_session.flush()
@@ -351,6 +352,8 @@ def test_manager_threshold_enforced(
     manager = decision_setup["user_manager"]
 
     # Raise limits to 600,000
+    claim.requested_amount = Decimal("605000.00")
+    assessment.assessed_loss = Decimal("605000.00")
     assessment.eligible_amount = Decimal("600000.00")
     assessment.max_eligible_amount = Decimal("600000.00")
     coverage.limit_amount = Decimal("1000000.00")

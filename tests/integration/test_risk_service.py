@@ -106,6 +106,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("0.00"),
         waiting_period_days=0,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
 
     # Claim in VALIDATED status (incident 2026-06-15, > 30 days from start, well before end)

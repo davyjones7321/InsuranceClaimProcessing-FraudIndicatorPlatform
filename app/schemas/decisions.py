@@ -19,6 +19,7 @@ class DecisionCreate(BaseModel):
     ] = None
     remarks: Annotated[str, Field(min_length=20)]
     reason_codes: list[str] | None = None
+    expected_status_version: int | None = Field(default=None, ge=1)
 
 
 class DecisionResponse(BaseModel):
@@ -31,6 +32,7 @@ class DecisionResponse(BaseModel):
     decided_by: uuid.UUID
     decision: DecisionType
     approved_amount: Decimal | None = None
+    limit_applied: Decimal | None = None
     remarks: str
     reason_codes: list[str] | None = None
     created_at: datetime

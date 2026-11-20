@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.writer import write_audit_log
 from app.db.base import utc_now
+from app.db.lock_utils import set_lock_timeout
 from app.db.models import (
     Claim,
     ClaimDocument,
@@ -404,6 +405,7 @@ class ClaimService:
         actor: User,
     ) -> Claim:
         """Execute a state machine transition with optimistic locking and row-level locking."""
+        set_lock_timeout(self.db)
         stmt = select(Claim).where(Claim.id == claim_id)
         bind = self.db.get_bind()
         if bind is not None and bind.dialect.name == "postgresql":

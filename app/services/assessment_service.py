@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.audit.writer import write_audit_log
 from app.db.base import utc_now
+from app.db.lock_utils import set_lock_timeout
 from app.db.models import Assessment, Claim, ClaimStatusHistory, Coverage, Investigation, User
-from app.domain.enums import ClaimStatus, InvestigationStatus, UserRole
+from app.domain.enums import ClaimStatus, InvestigationStatus, LimitScope, UserRole
 from app.domain.state_machine import validate_transition
 from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.types import AssessmentInput
@@ -48,7 +49,12 @@ class AssessmentService:
         actor: User,
     ) -> Assessment:
         """Evaluate engine cap, verify separation of duties, record assessment and advance claim to ASSESSED."""
-        claim = self.db.get(Claim, claim_id)
+        set_lock_timeout(self.db)
+        claim_stmt = select(Claim).where(Claim.id == claim_id)
+        bind = self.db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            claim_stmt = claim_stmt.with_for_update()
+        claim = self.db.scalars(claim_stmt).first()
         if not claim:
             raise AssessmentServiceError(f"Claim '{claim_id}' not found")
 
@@ -105,13 +111,18 @@ class AssessmentService:
             Coverage.policy_id == claim.policy_id,
             Coverage.claim_category == claim.claim_category,
         )
+        if bind is not None and bind.dialect.name == "postgresql":
+            coverage_stmt = coverage_stmt.with_for_update()
         coverage = self.db.scalars(coverage_stmt).first()
         if not coverage:
             raise AssessmentValidationError(
                 f"No coverage row found for category '{claim.claim_category}' on policy '{claim.policy_id}'"
             )
 
-        remaining_limit = max(Decimal("0.00"), coverage.limit_amount - coverage.consumed_amount)
+        if coverage.limit_scope == LimitScope.PER_CLAIM:
+            remaining_limit = coverage.limit_amount
+        else:
+            remaining_limit = max(Decimal("0.00"), coverage.limit_amount - coverage.consumed_amount)
         policy = claim.policy
 
         deductible = payload.deductible if payload.deductible is not None else coverage.deductible

@@ -69,6 +69,8 @@ class CoverageInput:
     copay_percent: Decimal
     waiting_period_days: int
     is_excluded: bool
+    limit_exceeded_behavior: str = "CAP"
+    limit_scope: str = "PER_POLICY_PERIOD"
 
 
 @dataclass(frozen=True)

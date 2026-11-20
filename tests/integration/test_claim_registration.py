@@ -130,6 +130,7 @@ def registration_setup(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("10.00"),
         waiting_period_days=0,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
     cov_flood = Coverage(
         id=uuid.uuid4(),
@@ -142,6 +143,7 @@ def registration_setup(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("20.00"),
         waiting_period_days=30,
         is_excluded=True,  # Excluded!
+        limit_exceeded_behavior="CAP",
     )
 
     # 7. Insured Vehicle on Active Policy

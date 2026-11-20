@@ -56,6 +56,7 @@ def add_coverage(
         waiting_period_days=payload.waiting_period_days,
         conditions=payload.conditions,
         is_excluded=payload.is_excluded,
+        limit_exceeded_behavior=payload.limit_exceeded_behavior,
     )
     db.add(coverage)
     db.flush()

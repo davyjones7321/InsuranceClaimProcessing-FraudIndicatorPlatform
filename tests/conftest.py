@@ -21,14 +21,18 @@ from app.domain.enums import UserRole
 from app.main import app
 from app.security.password import hash_password
 
-# Use in-memory SQLite with StaticPool for fast, isolated test runs
-TEST_DATABASE_URL = "sqlite:///:memory:"
-
-test_engine = create_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
+# Use environment DATABASE_URL if configured for PostgreSQL, otherwise in-memory SQLite
+env_db = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
+if env_db and "postgresql" in env_db:
+    TEST_DATABASE_URL = env_db
+    test_engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+else:
+    TEST_DATABASE_URL = "sqlite:///:memory:"
+    test_engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
 TestingSessionLocal = sessionmaker(
     bind=test_engine,

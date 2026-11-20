@@ -49,6 +49,9 @@ class CoverageCreate(BaseModel):
     waiting_period_days: int = Field(default=0, ge=0)
     conditions: dict[str, Any] | None = None
     is_excluded: bool = False
+    limit_exceeded_behavior: str = Field(
+        ..., pattern="^(CAP|REJECT)$", description="Limit policy: CAP or REJECT"
+    )
 
 
 class CoverageUpdate(BaseModel):
@@ -58,6 +61,7 @@ class CoverageUpdate(BaseModel):
     waiting_period_days: int | None = Field(default=None, ge=0)
     conditions: dict[str, Any] | None = None
     is_excluded: bool | None = None
+    limit_exceeded_behavior: str | None = Field(default=None, pattern="^(CAP|REJECT)$")
 
 
 class CoverageResponse(CoverageCreate):

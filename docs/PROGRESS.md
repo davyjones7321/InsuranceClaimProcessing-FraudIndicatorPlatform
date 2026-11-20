@@ -157,4 +157,113 @@
 - **Ruff Format**: Passed (122 files already formatted).
 - **Mypy**: Passed (`Success: no issues found in 61 source files`).
 - **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
-- **Status**: Ready for Owner Review. STOPPED at Phase P1 Gate.
+- **Status**: Complete (commit `4608d81`).
+
+---
+
+## Phase P2: Transactional approval and coverage accounting
+
+### Task Log
+
+#### Task 1: Lock Order and Retry Mechanism
+- **Files Created / Changed**:
+  - `app/db/lock_utils.py`
+  - `app/config.py`
+- **Details**:
+  - Enforced strict lock hierarchy: Claim row (`FOR UPDATE`), Coverage row sorted by ID (`FOR UPDATE`), Assessment row (`FOR UPDATE`), followed by audit chain writes.
+  - Added `set_lock_timeout` setting PostgreSQL transaction-scoped lock timeout (5s) via `LOCK_TIMEOUT_SECONDS`.
+  - Added `@with_concurrency_retry` decorator retrying on deadlock (`40P01`) or serialization failure (`40001`).
+
+#### Task 2: Claim Row Lock and Optimistic Version Concurrency
+- **Files Changed**:
+  - `app/services/claim_service.py`
+  - `app/services/decision_service.py`
+  - `app/services/assessment_service.py`
+  - `app/schemas/decisions.py`
+  - `app/schemas/claims.py`
+- **Details**:
+  - Injected `with_for_update()` on Claim queries across claim workflow mutations.
+  - Added `expected_status_version` to `DecisionCreate` and `ClaimReopenRequest`. Stale client attempts raise `StaleStatusVersionError` mapping to HTTP 409 Conflict.
+
+#### Task 3: Atomic Approval Transaction (Fix F5)
+- **Files Changed**:
+  - `app/services/decision_service.py`
+  - `app/engine/assessment_cap.py`
+- **Details**:
+  - Decision approval locks Claim and Coverage rows; verifies Coverage exists (refuses decision if missing, never skipping ledger).
+  - Recomputes remaining capacity from authoritative state by `limit_scope` (`PER_CLAIM` uses limit, `PER_POLICY_PERIOD` uses limit minus consumed).
+  - Recomputes payable P' from stored assessed loss using deterministic engine `calculate_assessment_cap`.
+  - Enforces `0 < approved_amount <= P'`. Rejects approvals exceeding capacity.
+  - Atomically increments `Coverage.consumed_amount` using SQL expression `update(Coverage).values(consumed_amount=Coverage.consumed_amount + payload.approved_amount)` under lock.
+  - Inserts `CONSUME` row in `CoverageLedger` linking `decision_id` and `claim_id`.
+  - Atomically persists Decision, status transition, ClaimStatusHistory, and audit log.
+
+#### Task 4: Database-Level Protection and Constraints
+- **Files Created / Changed**:
+  - `app/db/models.py`
+  - `alembic/versions/0003_coverage_transactional_accounting.py`
+- **Details**:
+  - Added check constraint `chk_coverage_consumed_limit` on `coverages`: `limit_scope != 'PER_POLICY_PERIOD' OR consumed_amount <= limit_amount`.
+  - Added check constraint `chk_coverage_limit_exceeded_behavior`: `limit_exceeded_behavior IN ('CAP', 'REJECT')`.
+  - Added `limit_applied` numeric column with check constraint `chk_decision_limit_applied` on `decisions`: `limit_applied IS NULL OR approved_amount <= limit_applied`.
+  - Added `decision_id` and `parent_ledger_id` foreign keys with unique constraint `uq_coverage_ledger_decision_entry` on `(decision_id, entry_type)` in `coverage_ledger`.
+  - Added `is_superseded` boolean flag on `assessments`.
+
+#### Task 5: Coverage Ledger Reconciliation
+- **Files Created**:
+  - `scripts/reconcile_ledger.py`
+- **Details**:
+  - Reconciles `consumed_amount` against sum of `CONSUME` minus `REVERSE` in `coverage_ledger`.
+  - CLI and programmatic invocation (`reconcile_coverages`). Safe to rerun; never auto-fixes; creates incident record on discrepancy.
+
+#### Task 6: Decision D1 Policy Implementation (Fix F6)
+- **Files Changed**:
+  - `app/engine/validation.py`
+  - `app/schemas/master_data.py`
+  - `app/config.py`
+- **Details**:
+  - Removed hardcoded `CAP_WITH_WARNING` default. `limit_exceeded_behavior` is a required NOT NULL field (`"CAP"` or `"REJECT"`) on `CoverageCreate` without default.
+  - Missing or unknown coverage terms fail validation Rule V11 with `POLICY_TERMS_INCOMPLETE`.
+  - Under `CAP`, V11 fails only when remaining limit is zero (`LIMIT_EXHAUSTED`); requests above limit emit `limit_warning=True`. Payable is capped with reason code `LIMIT_APPLIED`.
+  - Under `REJECT`, V11 fails with `LIMIT_EXCEEDED` if requested > remaining limit.
+  - Added `REQUIRE_MANAGER_WHEN_CAPPED` setting (default False); if True and limit was capped, non-manager actors are rejected.
+
+#### Task 7: Manager Reopen and Ledger Reversal Lifecycle (Per D1)
+- **Files Changed**:
+  - `app/api/claims.py`
+  - `app/services/decision_service.py`
+  - `app/domain/state_machine.py`
+- **Details**:
+  - Added `POST /api/claims/{claim_id}/reopen` route for Manager role only.
+  - Allowed state machine transitions: `APPROVED -> READY_FOR_ASSESSMENT` and `REJECTED -> READY_FOR_ASSESSMENT`. `WITHDRAWN` remains strictly terminal.
+  - Requires mandatory remarks (min 20 characters).
+  - Creates compensating `REVERSE` ledger row referencing the original `CONSUME` row (`parent_ledger_id`).
+  - Decrements `Coverage.consumed_amount` via atomic SQL expression under lock.
+  - Marks prior active assessments `is_superseded = True`.
+  - Original decisions and ledger entries remain append-only and immutable.
+
+#### Task 8: Verification Suites
+- **Files Created**:
+  - `tests/integration/test_p2_concurrency_and_ledger.py` (9 tests)
+- **Details**:
+  - Verified approval without coverage row fails with `DecisionValidationError`.
+  - Verified approval above remaining capacity is refused.
+  - Verified stale `status_version` returns HTTP 409 Conflict.
+  - Verified audit write failure rolls back status, decision, ledger, and consumed amount (atomicity verified).
+  - Verified capped approval records `LIMIT_APPLIED` and enforces manager threshold.
+  - Verified manager reopen reverses ledger and supersedes assessment.
+  - Verified reconciliation script detects clean ledger and flags incident on mismatch.
+  - Verified 2 concurrent approvals over remaining limit: exactly 1 succeeds, total never exceeds limit.
+  - Verified 50 concurrent approvals against limit: exactly 25 succeed (50k limit), 25 refused, consumed equals ledger sum.
+
+---
+
+### Phase P2 Gate Summary
+- **Test Suite**: 154 passed in 50.41s, 87% coverage.
+- **Ruff Lint**: Passed (`All checks passed!`).
+- **Ruff Format**: Passed (126 files already formatted).
+- **Mypy**: Passed (`Success: no issues found in 62 source files`).
+- **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
+- **Route Matrix**: Updated in `docs/ROUTE_MATRIX.md` with reopen route and F5 updates.
+- **Traceability Matrix**: Updated in `docs/TRACEABILITY.md` with R-08, R-09, R-22 mechanical enforcement details.
+- **Status**: Ready for Owner Review. STOPPED at Phase P2 Gate.

@@ -153,6 +153,7 @@ class MasterDataImportService:
                             cov.waiting_period_days = cov_data.waiting_period_days
                             cov.conditions = cov_data.conditions
                             cov.is_excluded = cov_data.is_excluded
+                            cov.limit_exceeded_behavior = cov_data.limit_exceeded_behavior
                             summary.items_updated += 1
                         else:
                             new_cov = Coverage(
@@ -167,6 +168,7 @@ class MasterDataImportService:
                                 waiting_period_days=cov_data.waiting_period_days,
                                 conditions=cov_data.conditions,
                                 is_excluded=cov_data.is_excluded,
+                                limit_exceeded_behavior=cov_data.limit_exceeded_behavior,
                             )
                             self.db.add(new_cov)
                             summary.items_created += 1
@@ -381,6 +383,14 @@ class MasterDataImportService:
                         "yes",
                     )
 
+                    limit_exceeded_behavior = (
+                        row.get("limit_exceeded_behavior", "CAP").strip().upper()
+                    )
+                    if limit_exceeded_behavior not in ("CAP", "REJECT"):
+                        raise ValueError(
+                            f"Invalid limit_exceeded_behavior: '{limit_exceeded_behavior}'. Must be 'CAP' or 'REJECT'."
+                        )
+
                     cov = self.db.scalars(
                         select(Coverage).where(
                             Coverage.policy_id == policy.id,
@@ -395,6 +405,7 @@ class MasterDataImportService:
                             cov.copay_percent = copay
                             cov.waiting_period_days = waiting_period
                             cov.is_excluded = is_excluded
+                            cov.limit_exceeded_behavior = limit_exceeded_behavior
                         summary.items_updated += 1
                     else:
                         if not dry_run:
@@ -409,6 +420,7 @@ class MasterDataImportService:
                                 copay_percent=copay,
                                 waiting_period_days=waiting_period,
                                 is_excluded=is_excluded,
+                                limit_exceeded_behavior=limit_exceeded_behavior,
                             )
                             self.db.add(new_cov)
                         summary.items_created += 1

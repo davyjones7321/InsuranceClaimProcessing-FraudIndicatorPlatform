@@ -6,6 +6,7 @@ from app.schemas.assessments import (
 )
 from app.schemas.claims import (
     ClaimCreate,
+    ClaimReopenRequest,
     ClaimResponse,
     ClaimStatusHistoryResponse,
     ClaimStatusTransitionRequest,
@@ -59,6 +60,7 @@ __all__ = [
     "AssessmentCreate",
     "AssessmentResponse",
     "ClaimCreate",
+    "ClaimReopenRequest",
     "ClaimResponse",
     "ClaimStatusHistoryResponse",
     "ClaimStatusTransitionRequest",

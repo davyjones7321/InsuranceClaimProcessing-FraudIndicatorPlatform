@@ -68,6 +68,7 @@ def make_valid_coverage_input(
     consumed_amount: Decimal = Decimal("0.00"),
     waiting_period_days: int = 30,
     is_excluded: bool = False,
+    limit_exceeded_behavior: str = "CAP",
 ) -> CoverageInput:
     return CoverageInput(
         coverage_id="cov-001",
@@ -78,6 +79,7 @@ def make_valid_coverage_input(
         copay_percent=Decimal("10.00"),
         waiting_period_days=waiting_period_days,
         is_excluded=is_excluded,
+        limit_exceeded_behavior=limit_exceeded_behavior,
     )
 
 
@@ -345,32 +347,66 @@ def test_v10_positive_requested_amount() -> None:
 
 def test_v11_coverage_limit_policy_behaviors() -> None:
     # Remaining limit = 50000 - 45000 = 5000
-    cov = make_valid_coverage_input(
-        limit_amount=Decimal("50000.00"), consumed_amount=Decimal("45000.00")
+    cov_cap = make_valid_coverage_input(
+        limit_amount=Decimal("50000.00"),
+        consumed_amount=Decimal("45000.00"),
+        limit_exceeded_behavior="CAP",
     )
 
-    # Requesting 6000 under CAP_WITH_WARNING (default): PASS with limit_warning=True in snapshot
+    # 1. Requesting 6000 under CAP: PASS with limit_warning=True in snapshot
     inp_cap = make_valid_validation_input(
         claim=make_valid_claim_input(requested_amount=Decimal("6000.00")),
-        coverages=(cov,),
+        coverages=(cov_cap,),
     )
     out_cap = evaluate_validation(inp_cap)
     v11_cap = next(r for r in out_cap.rule_results if r.rule_id == "V11")
     assert v11_cap.outcome == RuleOutcomeEnum.PASS
     assert v11_cap.inputs_snapshot["limit_warning"] is True
 
-    # Requesting 6000 under REJECT policy: FAIL
-    custom_ruleset = dict(ACTIVE_RULESET)
-    custom_ruleset["claim_limit_policy"] = "REJECT"
+    # 2. CAP with zero remaining limit: FAIL with LIMIT_EXHAUSTED
+    cov_exhausted = make_valid_coverage_input(
+        limit_amount=Decimal("50000.00"),
+        consumed_amount=Decimal("50000.00"),
+        limit_exceeded_behavior="CAP",
+    )
+    inp_exhausted = make_valid_validation_input(
+        claim=make_valid_claim_input(requested_amount=Decimal("1000.00")),
+        coverages=(cov_exhausted,),
+    )
+    out_exhausted = evaluate_validation(inp_exhausted)
+    v11_exh = next(r for r in out_exhausted.rule_results if r.rule_id == "V11")
+    assert v11_exh.outcome == RuleOutcomeEnum.FAIL
+    assert v11_exh.reason_code == "LIMIT_EXHAUSTED"
+
+    # 3. Requesting 6000 under REJECT behavior: FAIL with LIMIT_EXCEEDED
+    cov_reject = make_valid_coverage_input(
+        limit_amount=Decimal("50000.00"),
+        consumed_amount=Decimal("45000.00"),
+        limit_exceeded_behavior="REJECT",
+    )
     inp_reject = make_valid_validation_input(
         claim=make_valid_claim_input(requested_amount=Decimal("6000.00")),
-        coverages=(cov,),
-        ruleset=custom_ruleset,
+        coverages=(cov_reject,),
     )
     out_reject = evaluate_validation(inp_reject)
     v11_rej = next(r for r in out_reject.rule_results if r.rule_id == "V11")
     assert v11_rej.outcome == RuleOutcomeEnum.FAIL
     assert v11_rej.reason_code == "LIMIT_EXCEEDED"
+
+    # 4. Unknown behavior: FAIL with POLICY_TERMS_INCOMPLETE
+    cov_unknown = make_valid_coverage_input(
+        limit_amount=Decimal("50000.00"),
+        consumed_amount=Decimal("45000.00"),
+        limit_exceeded_behavior="UNKNOWN_BEHAVIOR",
+    )
+    inp_unknown = make_valid_validation_input(
+        claim=make_valid_claim_input(requested_amount=Decimal("1000.00")),
+        coverages=(cov_unknown,),
+    )
+    out_unknown = evaluate_validation(inp_unknown)
+    v11_unk = next(r for r in out_unknown.rule_results if r.rule_id == "V11")
+    assert v11_unk.outcome == RuleOutcomeEnum.FAIL
+    assert v11_unk.reason_code == "POLICY_TERMS_INCOMPLETE"
 
 
 def test_v12_mandatory_fields_present() -> None:

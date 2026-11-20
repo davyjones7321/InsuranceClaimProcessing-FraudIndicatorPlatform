@@ -44,6 +44,19 @@ class ClaimStatusTransitionRequest(BaseModel):
     reason_code: Annotated[str | None, Field(default=None, max_length=64)] = None
 
 
+class ClaimReopenRequest(BaseModel):
+    """Payload for reopening an approved or rejected claim (Manager only)."""
+
+    remarks: Annotated[
+        str, Field(min_length=20, description="Mandatory remarks for reopening the claim")
+    ]
+    expected_status_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional optimistic locking token matching the current claim status_version.",
+    )
+
+
 class ClaimResponse(BaseModel):
     """Standard representation of a claim."""
 

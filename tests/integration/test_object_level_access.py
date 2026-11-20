@@ -95,6 +95,7 @@ def two_customers(db_session: Session) -> tuple[tuple[Customer, User], tuple[Cus
         consumed_amount=Decimal("0.00"),
         deductible=Decimal("1000.00"),
         copay_percent=Decimal("10.00"),
+        limit_exceeded_behavior="CAP",
     )
     db_session.add(cov1)
 
@@ -130,6 +131,7 @@ def two_customers(db_session: Session) -> tuple[tuple[Customer, User], tuple[Cus
         consumed_amount=Decimal("0.00"),
         deductible=Decimal("500.00"),
         copay_percent=Decimal("0.00"),
+        limit_exceeded_behavior="CAP",
     )
     db_session.add(cov2)
 

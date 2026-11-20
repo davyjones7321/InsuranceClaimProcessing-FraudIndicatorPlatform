@@ -27,6 +27,7 @@ from app.domain.state_machine import InvalidStateTransitionError
 from app.schemas.assessments import AssessmentCreate, AssessmentResponse
 from app.schemas.claims import (
     ClaimCreate,
+    ClaimReopenRequest,
     ClaimResponse,
     ClaimStatusHistoryResponse,
     ClaimStatusTransitionRequest,
@@ -934,6 +935,41 @@ def make_claim_decision(
             actor=current_user,
         )
         return DecisionResponse.model_validate(decision)
+    except StaleStatusVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except DecisionValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except DecisionPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except DecisionServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/reopen",
+    response_model=ClaimResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reopen an approved or rejected claim (Manager only)",
+    dependencies=[require_roles(UserRole.MANAGER, UserRole.ADMIN)],
+)
+def reopen_claim(
+    claim_id: uuid.UUID,
+    payload: ClaimReopenRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ClaimResponse:
+    """Manager-only reopen of an APPROVED or REJECTED claim to READY_FOR_ASSESSMENT with compensating reversal."""
+    service = DecisionService(db)
+    try:
+        claim = service.reopen_claim(
+            claim_id=claim_id,
+            actor=current_user,
+            remarks=payload.remarks,
+            expected_status_version=payload.expected_status_version,
+        )
+        return ClaimResponse.model_validate(claim)
+    except StaleStatusVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except DecisionValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except DecisionPermissionError as exc:

@@ -163,10 +163,18 @@ class Coverage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     waiting_period_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     conditions: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     is_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    limit_exceeded_behavior: Mapped[str] = mapped_column(String(32), nullable=False)
 
     __table_args__ = (
+        CheckConstraint(
+            "limit_exceeded_behavior IN ('CAP', 'REJECT')",
+            name="chk_coverage_limit_exceeded_behavior",
+        ),
         CheckConstraint("consumed_amount >= 0", name="chk_coverage_consumed_non_negative"),
-        CheckConstraint("consumed_amount <= limit_amount", name="chk_coverage_consumed_limit"),
+        CheckConstraint(
+            "limit_scope != 'PER_POLICY_PERIOD' OR consumed_amount <= limit_amount",
+            name="chk_coverage_consumed_limit",
+        ),
         CheckConstraint("limit_amount >= 0", name="chk_coverage_limit_positive"),
         CheckConstraint("deductible >= 0", name="chk_coverage_deductible_positive"),
         CheckConstraint(
@@ -193,6 +201,18 @@ class CoverageLedger(Base, UUIDPrimaryKeyMixin):
     claim_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("claims.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    decision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("decisions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    parent_ledger_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("coverage_ledger.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     entry_type: Mapped[CoverageLedgerEntryType] = mapped_column(
         Enum(CoverageLedgerEntryType, name="coverage_ledger_entry_type"), nullable=False
     )
@@ -202,11 +222,16 @@ class CoverageLedger(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
-    __table_args__ = (CheckConstraint("amount > 0", name="chk_ledger_amount_positive"),)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="chk_ledger_amount_positive"),
+        UniqueConstraint("decision_id", "entry_type", name="uq_coverage_ledger_decision_entry"),
+    )
 
     # Relationships
     coverage: Mapped["Coverage"] = relationship(back_populates="ledger_entries")
     claim: Mapped["Claim | None"] = relationship()
+    parent_entry: Mapped["CoverageLedger | None"] = relationship(remote_side="CoverageLedger.id")
+    decision: Mapped["Decision | None"] = relationship()
 
 
 class Exclusion(Base, UUIDPrimaryKeyMixin):
@@ -481,6 +506,7 @@ class Assessment(Base, UUIDPrimaryKeyMixin):
     calculation_trace: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     remarks: Mapped[str] = mapped_column(Text, nullable=False)
     supporting_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_superseded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -566,6 +592,7 @@ class Decision(Base, UUIDPrimaryKeyMixin):
         Enum(DecisionType, name="decision_type"), nullable=False
     )
     approved_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    limit_applied: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     remarks: Mapped[str] = mapped_column(Text, nullable=False)
     reason_codes: Mapped[list[str] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -574,6 +601,10 @@ class Decision(Base, UUIDPrimaryKeyMixin):
 
     __table_args__ = (
         CheckConstraint("length(remarks) >= 20", name="chk_decision_remarks_min_length"),
+        CheckConstraint(
+            "limit_applied IS NULL OR approved_amount <= limit_applied",
+            name="chk_decision_limit_applied",
+        ),
     )
 
     claim: Mapped["Claim"] = relationship(back_populates="decisions")

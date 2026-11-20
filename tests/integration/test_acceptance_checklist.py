@@ -171,6 +171,7 @@ def acceptance_seed(db_session: Session) -> dict[str, Any]:
         limit_scope=LimitScope.PER_POLICY_PERIOD,
         limit_amount=Decimal("100000.00"),
         consumed_amount=Decimal("0.00"),
+        limit_exceeded_behavior="CAP",
     )
     cov_b = Coverage(
         id=uuid.uuid4(),
@@ -179,6 +180,7 @@ def acceptance_seed(db_session: Session) -> dict[str, Any]:
         limit_scope=LimitScope.PER_POLICY_PERIOD,
         limit_amount=Decimal("100000.00"),
         consumed_amount=Decimal("0.00"),
+        limit_exceeded_behavior="CAP",
     )
 
     db_session.add_all(
