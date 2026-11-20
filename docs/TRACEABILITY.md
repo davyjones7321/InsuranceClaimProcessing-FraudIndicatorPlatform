@@ -1,0 +1,37 @@
+# Requirements Traceability Matrix
+
+This matrix maps every platform requirement from `goal.md` and `HARDENING_PROMPT.md` to its implementation code location, associated test, and mechanical enforcement level.
+
+Enforcement Level Labels:
+- `MECHANICALLY ENFORCED`: Enforced by database constraint, schema trigger, DB grant, compiler/type system, AST validator, or import contract.
+- `CONVENTION ONLY`: Enforced only by procedural application code logic without DB or architectural safety nets.
+- `NOT IMPLEMENTED`: Feature or safeguard is absent from codebase.
+- `UNVERIFIED`: Implementation exists but is unverified or lacks dedicated test verification.
+
+---
+
+## 1. Traceability Matrix
+
+| Req ID | Requirement Description | Source Code Location | Test File & Function | Enforcement Level | Enforcement Details |
+|---|---|---|---|---|---|
+| R-01 | Customer can only register claims on own active policy | `app/services/claim_service.py:115-120` | `tests/integration/test_claim_registration.py::test_customer_cannot_register_claim_on_other_customer_policy` | CONVENTION ONLY | Checked by Python `if actor.role == UserRole.CUSTOMER and actor.customer_id != policy.customer_id:`. No DB constraint links `claims.customer_id` and `policies.customer_id`. |
+| R-02 | Missing mandatory documents blocks claim at DOCUMENTS_PENDING | `app/engine/validation.py:383-477` | `tests/integration/test_acceptance_checklist.py::test_acceptance_02_mandatory_documents_pending` | CONVENTION ONLY | Enforced in deterministic engine V13 rule; state machine transition enforces `DOCUMENTS_PENDING` status. |
+| R-03 | Validation rules V01-V13 have failing examples with reason codes | `app/engine/validation.py` | `tests/integration/test_acceptance_checklist.py::test_acceptance_03_all_validation_rules_failing_examples` | MECHANICALLY ENFORCED | Test suite asserts that every rule failure emits a specific typed reason code from allowlist. |
+| R-04 | Clean claim flows through validation -> risk -> assessment -> decision without investigation | `app/services/claim_service.py`, `app/engine/risk.py` | `tests/integration/test_acceptance_checklist.py::test_acceptance_04_clean_claim_no_investigation_lifecycle` | CONVENTION ONLY | Procedural workflow orchestration. |
+| R-05 | Flagged claim routes to investigation; zero fraud-declaring wording | `app/engine/risk.py`, `app/security/forbidden_wording.py` | `tests/security/test_forbidden_wording.py::test_engine_and_api_contain_zero_forbidden_accusatory_wording` | MECHANICALLY ENFORCED | Failing test inspects all codebase strings, API responses, and templates for forbidden accusatory words. |
+| R-06 | No code path converts a risk score into rejection | `app/engine/risk.py`, `app/services/risk_service.py` | `tests/security/test_no_rejection_from_risk.py::test_ast_risk_service_never_transitions_to_rejected` | MECHANICALLY ENFORCED | AST inspection test parses `app/services/risk_service.py` and fails if any code path sets status to `REJECTED`. |
+| R-07 | Decisions require remarks; REJECTED requires reason codes; separation of duties | `app/services/decision_service.py:97-101, 137-140, 185-201` | `tests/integration/test_acceptance_checklist.py::test_acceptance_07_decision_rules_and_separation_of_duties` | CONVENTION ONLY | Checked in Python service method; database has no CHECK constraint on `decisions.remarks` length or separation of duties. |
+| R-08 | Approved amount <= assessed eligible amount <= engine cap | `app/services/decision_service.py:149-152`, `app/engine/assessment_cap.py` | `tests/integration/test_decision_lifecycle.py::test_approval_above_eligible_amount_blocked` | CONVENTION ONLY | Enforced by Python `if payload.approved_amount > assessment.eligible_amount:` in `decision_service`. DB lacks cross-table CHECK. |
+| R-09 | Coverage cannot be overspent under concurrent approvals | `app/services/decision_service.py:163-179` | None (currently SQLite only; no concurrency test) | NOT IMPLEMENTED | **Finding F5:** In-memory Python addition without DB row lock or `CHECK (consumed_amount <= limit_amount)`. |
+| R-10 | Append-only audit log for app database role | `deploy/init-db.sql`, `app/audit/writer.py` | `docs/evidence/baseline/reproduce_f1.py` | NOT IMPLEMENTED | **Finding F1:** `REVOKE UPDATE, DELETE` is commented out; `app_rw` can mutate or delete rows. |
+| R-11 | Audit writer concurrency safety without errors or forks | `app/audit/writer.py:160-176` | `docs/evidence/baseline/reproduce_f2.py` | NOT IMPLEMENTED | **Finding F2:** Race condition on new chain insertion causes IntegrityError on first write. |
+| R-12 | Pure engine determinism: zero IO, clock, network, or DB calls | `pyproject.toml`, `app/engine/*` | `tests/engine/test_forbidden_imports.py::test_engine_has_zero_forbidden_imports_or_calls` | MECHANICALLY ENFORCED | Import-linter contract in `pyproject.toml` and AST scan test fail the build if `app.engine` imports DB or network modules. |
+| R-13 | Replay reproduces validation, risk, and assessment results | `scripts/replay.py` | `tests/integration/test_replay.py::test_replay_script_reproduces_all_evaluations` | CONVENTION ONLY | **Finding F7:** Replay rebuilds inputs from live database tables instead of stored `inputs_snapshot`. |
+| R-14 | Service-level authorization on all claim mutations | `app/services/*.py`, `app/api/claims.py` | `tests/integration/test_object_level_access.py` | CONVENTION ONLY | **Finding F3:** Mutation endpoints do not call `check_claim_access`; only read endpoints do. |
+| R-15 | Risk data redaction: customers and staff cannot view risk data | `app/api/claims.py:529, 559` | `tests/integration/test_risk_service.py:260-272` | NOT IMPLEMENTED | **Finding F4:** `require_roles` explicitly includes `CUSTOMER` and `STAFF`, and tests assert customer can read. |
+| R-16 | Unified sensitive document catalog and access logging | `app/services/claim_service.py:35`, `app/security/rbac.py:108` | `tests/integration/test_document_lifecycle.py::test_sensitive_document_access_control_and_view_logging` | CONVENTION ONLY | **Finding F8:** Contradictory document code lists between `claim_service.py` and `rbac.py`. |
+| R-17 | Stream-based upload size enforcement before buffering | `app/api/claims.py:264` | `tests/integration/test_document_lifecycle.py::test_document_upload_rejects_oversized_files` | NOT IMPLEMENTED | **Finding F8:** Code executes `await file.read()` before passing to service for size check. |
+| R-18 | Strict allowlist for audit event data (zero arbitrary keys/PII) | `app/audit/writer.py:58-74` | `tests/integration/test_audit.py::test_audit_strictly_rejects_sensitive_pii` | CONVENTION ONLY | **Finding F9:** Uses a denylist of field names; free text like `review_remarks` is written to audit events. |
+| R-19 | Real PostgreSQL test suite with CI failure thresholds | `tests/conftest.py:25`, `.github/workflows/ci.yml` | None | NOT IMPLEMENTED | **Finding F10:** In-memory SQLite is hardcoded in `conftest.py`; CI runs tests on SQLite; no coverage threshold. |
+| R-20 | Operational tooling: backtest, retention report, scheduler, UI | `scripts/*`, `templates/*` | None | NOT IMPLEMENTED | **Finding F11:** Missing scripts, scheduler, and templates. |
+| R-21 | Risk completeness: unassessed claims never show as LOW | `app/engine/risk.py:509-524` | `tests/engine/test_risk_engine.py` | NOT IMPLEMENTED | **Finding F12:** Skipped indicators sum to 0 which maps to LOW category. MEDIUM and HIGH route identically. |

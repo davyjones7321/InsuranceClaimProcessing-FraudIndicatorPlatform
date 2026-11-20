@@ -1,0 +1,3 @@
+=== MYPY APP ===
+$ mypy --cache-dir "$TEMP/mypy_cache" app
+Success: no issues found in 60 source files
