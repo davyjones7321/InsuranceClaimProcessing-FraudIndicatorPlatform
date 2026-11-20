@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.config import settings
 from app.db.base import utc_now
@@ -357,7 +358,7 @@ class RiskService:
                     "from_status": ClaimStatus.VALIDATED.value,
                     "to_status": target_status.value,
                     "status_version": claim.status_version,
-                    "reason": transition_reason,
+                    "reason_sha256": hash_free_text(transition_reason),
                 },
             )
 

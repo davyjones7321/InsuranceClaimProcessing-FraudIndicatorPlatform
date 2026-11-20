@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.db.base import utc_now
 from app.db.models import Claim, ClaimStatusHistory, Investigation, InvestigationFinding, User
@@ -184,7 +185,7 @@ class InvestigationService:
             actor_role=actor.role.value,
             actor_id=actor.id,
             claim_id=claim_id,
-            event_data={"finding_text": clean_text},
+            event_data={"findings_sha256": hash_free_text(clean_text)},
         )
 
         self.db.commit()
@@ -242,7 +243,7 @@ class InvestigationService:
             actor_role=actor.role.value,
             actor_id=actor.id,
             claim_id=claim_id,
-            event_data={"reason": clean_reason},
+            event_data={"reason_sha256": hash_free_text(clean_reason)},
         )
 
         self.db.commit()
@@ -331,7 +332,7 @@ class InvestigationService:
             event_data={
                 "outcome": outcome.value,
                 "findings_count": len(investigation.findings),
-                "remarks": remarks,
+                "remarks_sha256": hash_free_text(remarks),
             },
         )
 

@@ -13,9 +13,11 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -645,33 +647,57 @@ class AuditChainHead(Base):
 
 
 class AuditLog(Base):
-    """Append-only audit log with HMAC-SHA256 hash chaining."""
+    """Append-only audit log with HMAC-SHA256 hash chaining and Appendix B integrity constraints."""
 
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigIntType, primary_key=True, autoincrement=True)
     chain_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     seq: Mapped[int] = mapped_column(BigIntType, nullable=False)
+    prev_seq: Mapped[int | None] = mapped_column(BigIntType, nullable=True)
+    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    hash_version: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    key_id: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), default=uuid.uuid4, nullable=False
+    )
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
     actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     actor_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_table: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_pk: Mapped[str] = mapped_column(String(128), nullable=False)
+    op: Mapped[str] = mapped_column(String(32), nullable=False, default="INSERT")
     action: Mapped[str] = mapped_column(String(64), nullable=False)
-    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status_after: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload_canonical: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    event_data: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
     claim_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True, index=True
     )
-    event_data: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("chain_key", "seq", name="uq_audit_chain_seq"),
+        UniqueConstraint("chain_key", "seq", "hash", name="uq_audit_chain_seq_hash"),
         UniqueConstraint("chain_key", "prev_hash", name="uq_audit_chain_prev_hash"),
+        CheckConstraint("seq >= 1", name="chk_audit_seq_positive"),
+        CheckConstraint(
+            "(seq = 1 AND prev_seq IS NULL) OR (seq > 1 AND prev_seq IS NOT NULL)",
+            name="chk_audit_genesis_null",
+        ),
+        CheckConstraint(
+            "prev_seq IS NULL OR prev_seq = seq - 1",
+            name="chk_audit_seq_consecutive",
+        ),
+        ForeignKeyConstraint(
+            ["chain_key", "prev_seq", "prev_hash"],
+            ["audit_log.chain_key", "audit_log.seq", "audit_log.hash"],
+            name="fk_audit_log_prev",
+        ),
         Index("ix_audit_occurred_at", "occurred_at"),
     )
 
@@ -757,6 +783,7 @@ class AccessLog(Base, UUIDPrimaryKeyMixin):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    row_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False, index=True
     )

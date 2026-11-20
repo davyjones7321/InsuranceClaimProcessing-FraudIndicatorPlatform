@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.config import settings
 from app.db.base import utc_now
@@ -231,7 +232,7 @@ class ValidationService:
                     "from_status": old_st.value,
                     "to_status": ClaimStatus.REGISTERED.value,
                     "status_version": claim.status_version,
-                    "reason": "Revalidation initiated",
+                    "reason_sha256": hash_free_text("Revalidation initiated"),
                 },
             )
             self.db.flush()
@@ -343,7 +344,7 @@ class ValidationService:
                 "from_status": old_status.value,
                 "to_status": target_status.value,
                 "status_version": claim.status_version,
-                "reason": reason_msg,
+                "reason_sha256": hash_free_text(reason_msg),
             },
         )
 

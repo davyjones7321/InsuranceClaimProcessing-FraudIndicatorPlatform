@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.db.base import utc_now
 from app.db.lock_utils import set_lock_timeout
@@ -200,7 +201,7 @@ class AssessmentService:
                 "assessed_loss": str(payload.assessed_loss),
                 "eligible_amount": str(payload.eligible_amount),
                 "max_eligible_amount": str(cap_output.max_eligible_amount),
-                "remarks": payload.remarks,
+                "remarks_sha256": hash_free_text(payload.remarks),
             },
         )
 

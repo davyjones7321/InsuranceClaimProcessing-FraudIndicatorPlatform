@@ -638,7 +638,7 @@ def test_acceptance_09_audit_tamper_detection(db_session: Session) -> None:
         entity_type="Claim",
         entity_id=str(claim_id),
         actor_role="CUSTOMER",
-        event_data={"note": "Original submission"},
+        event_data={"note_sha256": "0" * 64},
         claim_id=claim_id,
     )
     write_audit_log(
@@ -661,7 +661,7 @@ def test_acceptance_09_audit_tamper_detection(db_session: Session) -> None:
         select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 1)
     ).first()
     assert log_entry is not None
-    log_entry.event_data = {"note": "Tampered submission"}
+    log_entry.event_data = {"note_sha256": "1" * 64}
     db_session.commit()
 
     tampered_ver = verify_chain(db_session, chain_key, record_run=False)

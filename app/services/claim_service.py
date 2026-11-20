@@ -6,6 +6,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.db.base import utc_now
 from app.db.lock_utils import set_lock_timeout
@@ -278,7 +279,7 @@ class ClaimService:
             claim_id=claim_id,
             event_data={
                 "doc_code": doc_code,
-                "file_name": file_name,
+                "file_name_sha256": hash_free_text(file_name),
                 "sha256": sha256_hash,
                 "size_bytes": size_bytes,
                 "mime_type": mime_type,
@@ -340,7 +341,7 @@ class ClaimService:
                 "doc_code": doc.doc_code,
                 "status": doc.status.value,
                 "reason_code": doc.reason_code,
-                "review_remarks": doc.review_remarks,
+                "remarks_sha256": hash_free_text(doc.review_remarks),
             },
         )
         self.db.flush()
@@ -390,7 +391,7 @@ class ClaimService:
                 claim_id=claim_id,
                 event_data={
                     "doc_code": doc.doc_code,
-                    "file_name": doc.file_name,
+                    "file_name_sha256": hash_free_text(doc.file_name),
                     "sha256": doc.sha256,
                 },
             )
@@ -466,7 +467,7 @@ class ClaimService:
                 "to_status": req.to_status.value,
                 "status_version": claim.status_version,
                 "reason_code": req.reason_code,
-                "remarks": req.remarks,
+                "remarks_sha256": hash_free_text(req.remarks),
             },
         )
         self.db.flush()

@@ -266,4 +266,118 @@
 - **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
 - **Route Matrix**: Updated in `docs/ROUTE_MATRIX.md` with reopen route and F5 updates.
 - **Traceability Matrix**: Updated in `docs/TRACEABILITY.md` with R-08, R-09, R-22 mechanical enforcement details.
-- **Status**: Ready for Owner Review. STOPPED at Phase P2 Gate.
+- **Status**: Complete (commit `293122b`).
+
+---
+
+## Phase P3: Audit integrity
+
+### Task Log
+
+#### Task 1: Database-Level Append-Only (Fix F1)
+- **Files Created / Changed**:
+  - `alembic/versions/0004_audit_integrity_append_only.py`
+  - `deploy/init-db.sql`
+- **Details**:
+  - Revoked `UPDATE`, `DELETE`, and `TRUNCATE` permissions on all protected immutable tables (`audit_log`, `claim_status_history`, `decisions`, `investigation_findings`, `coverage_ledger`, `access_log`) from role `app_rw`.
+  - Added defense-in-depth database triggers (`trg_prevent_update_delete_truncate` on PostgreSQL and `trg_no_update_*`/`trg_no_delete_*` on SQLite) that raise exceptions immediately on any attempted mutation or deletion.
+  - Aligned bootstrap `init-db.sql` and Alembic migration `0004`.
+- **Verification**: `tests/integration/test_p3_audit_integrity.py::test_database_level_append_only_triggers_reject_mutations` (Passed).
+
+#### Task 2: Concurrency-Safe Appends and Serialization (Fix F2)
+- **Files Changed**:
+  - `app/audit/writer.py`
+  - `alembic/versions/0004_audit_integrity_append_only.py`
+- **Details**:
+  - Eliminated the first-write race condition by querying head state authoritatively from `AuditLog` under advisory transaction locks (`pg_advisory_xact_lock` on PostgreSQL and per-chain process locks on SQLite).
+  - Enforced mechanical database constraints: `UNIQUE (chain_key, seq)` (`uq_audit_chain_seq`), `UNIQUE (chain_key, prev_hash)` (`uq_audit_chain_prev_hash`), and composite self-referential foreign key `fk_audit_log_prev` (`(chain_key, prev_seq, prev_hash) REFERENCES audit_log(chain_key, seq, hash)`).
+  - Maintained `AuditChainHead` as an accelerated cache updated atomically in the same transaction.
+- **Verification**:
+  - `tests/integration/test_p3_audit_integrity.py::test_concurrency_50_writers_on_single_chain_never_gaps_or_forks` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_concurrency_50_first_writes_to_new_chains_no_first_write_race` (Passed).
+
+#### Task 3: Strict Schema Allowlisting and PII / Float Rejection (Fix F9)
+- **Files Created / Changed**:
+  - `app/audit/schema.py`
+  - `app/audit/writer.py`
+  - `app/api/auth.py`
+  - `app/api/customers.py`
+  - `app/services/claim_service.py`
+  - `app/services/assessment_service.py`
+  - `app/services/decision_service.py`
+  - `app/services/investigation_service.py`
+  - `app/services/risk_service.py`
+  - `app/services/validation_service.py`
+- **Details**:
+  - Replaced denylist approach with per-action allowed keys schema in `ACTION_SCHEMAS`.
+  - Enforced strict rejection of unknown actions, unknown keys, free-text fields (e.g. raw remarks, descriptions, findings), IEEE-754 floating-point numbers, and sensitive personal identifiers (PII).
+  - Free text is converted to deterministic SHA-256 digests (`hash_free_text`) before logging.
+  - Values restricted to IDs, enums, dates, fixed-scale decimal strings, and SHA-256 hashes.
+- **Verification**:
+  - `tests/integration/test_p3_audit_integrity.py::test_strict_allowlist_rejects_unknown_action` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_strict_allowlist_rejects_unknown_keys` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_strict_allowlist_rejects_free_text` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_strict_allowlist_rejects_long_unhashed_strings` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_strict_allowlist_rejects_pii` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_strict_allowlist_rejects_floats` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_canary_test_proves_zero_pii_leaks` (Passed).
+
+#### Task 4: Entity Chains Architecture
+- **Files Changed**:
+  - `app/audit/writer.py`
+  - `app/api/auth.py`
+  - `app/api/customers.py`
+- **Details**:
+  - Segregated independent hash chains: `claim:<claim-id>`, `customer:<customer-id>`, `policy:<policy-id>`, `user:<user-id>`.
+  - System chain (`system`) strictly reserved for system-level operational events (ruleset activation, key rotation, backup drills, retention reports, verification runs). Claim-path operations forbidden from writing to `system`.
+
+#### Task 5: Length-Prefixed HMAC-SHA256 Framing
+- **Files Created / Changed**:
+  - `app/audit/writer.py`
+  - `app/audit/schema.py`
+- **Details**:
+  - Secret key loaded outside database from environment (`settings.AUDIT_HMAC_KEY`).
+  - Genesis computed deterministically: `sha256("genesis:" + chain_key)`.
+  - Implemented length-prefixed framing over explicit fields (`<len>:<val>`) per Appendix B, incorporating `hash_version=1` and `key_id=1`.
+  - Stored canonical payload text (`payload_canonical`) as immutable source of truth.
+
+#### Task 6: External Anchoring and Access Log Integrity
+- **Files Created / Changed**:
+  - `app/audit/anchor.py`
+  - `scripts/anchor_audit.py`
+  - `app/security/access_log.py`
+  - `app/db/models.py`
+- **Details**:
+  - Implemented daily anchor manifest generator in `app/audit/anchor.py` and CLI in `scripts/anchor_audit.py`.
+  - Manifest records previous manifest root hash, chained heads, and digest of access log `row_hash` values.
+  - Added per-row HMAC (`row_hash`) to `access_log` for contention-free verification.
+- **Verification**: `tests/integration/test_p3_audit_integrity.py::test_access_log_integrity_and_daily_anchor` (Passed).
+
+#### Task 7: Comprehensive Verification and Tamper Detection
+- **Files Created / Changed**:
+  - `app/audit/verifier.py`
+  - `scripts/verify_audit.py`
+  - `tests/integration/test_p3_audit_integrity.py`
+- **Details**:
+  - Verifier validates cryptographic linkage, sequence linearity, head-versus-last-row consistency, external anchor manifests, and access log digests.
+  - Automatically identifies first broken sequence; blocks write operations on broken chains until acknowledged.
+- **Verification**:
+  - `tests/integration/test_p3_audit_integrity.py::test_tamper_matrix_row_mutation` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_tamper_matrix_sequence_gap` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_tamper_matrix_tail_truncation_detected_via_external_anchor` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_tamper_matrix_anchor_mismatch_detected` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_audit_failure_rolls_back_entire_business_transaction` (Passed).
+  - `tests/integration/test_p3_audit_integrity.py::test_audit_log_columns_strictly_classified` (Passed).
+
+---
+
+### Phase P3 Gate Summary
+- **Test Suite**: 171 passed in 41.05s, 85% coverage.
+- **P3 Verification Suite**: 17 passed in 1.71s (`tests/integration/test_p3_audit_integrity.py`).
+- **Ruff Lint**: Passed (`All checks passed!`).
+- **Ruff Format**: Passed (131 files already formatted).
+- **Mypy**: Passed (`Success: no issues found in 64 source files`).
+- **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
+- **Alembic Migrations**: Passed (`test_alembic_migrations_upgrade_and_downgrade` passed upgrade/downgrade/upgrade cycle).
+- **Traceability Matrix**: Updated in `docs/TRACEABILITY.md` with R-10, R-11, R-18 mechanical enforcement details.
+- **Status**: Ready for Owner Review. STOPPED at Phase P3 Gate (commit `f8d453b`).

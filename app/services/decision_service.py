@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.config import settings
 from app.db.base import utc_now
@@ -386,7 +387,7 @@ class DecisionService:
                 if payload.approved_amount
                 else None,
                 "reason_codes": reason_codes_list if reason_codes_list else None,
-                "remarks": clean_remarks,
+                "remarks_sha256": hash_free_text(clean_remarks),
             },
         )
 
@@ -545,7 +546,7 @@ class DecisionService:
                 "action": "REOPEN",
                 "from_status": old_status.value,
                 "to_status": ClaimStatus.READY_FOR_ASSESSMENT.value,
-                "remarks": clean_remarks,
+                "remarks_sha256": hash_free_text(clean_remarks),
             },
         )
 

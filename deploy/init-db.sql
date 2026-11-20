@@ -23,6 +23,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE migrator IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO app_rw;
 
--- Append-only enforcement: Revoke UPDATE and DELETE from app_rw on append-only tables
--- (Run after migrations or in migration hooks)
--- REVOKE UPDATE, DELETE ON audit_log, claim_status_history, decisions, investigation_findings, coverage_ledger FROM app_rw;
+-- Append-only enforcement: Revoke UPDATE, DELETE, and TRUNCATE from app_rw on append-only tables
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_rw') THEN
+        REVOKE UPDATE, DELETE, TRUNCATE ON audit_log, claim_status_history, decisions, investigation_findings, coverage_ledger, access_log FROM app_rw;
+    END IF;
+END $$;
