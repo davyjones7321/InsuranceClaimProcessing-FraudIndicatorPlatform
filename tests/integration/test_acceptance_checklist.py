@@ -449,14 +449,13 @@ def test_acceptance_04_clean_claim_no_investigation_lifecycle() -> None:
     )
     risk_in = RiskInput(
         claim=claim,
-        customer_name="Alice Customer",
-        customer_state_region="CA",
         policy=policy,
         coverage=cov,
         documents=(),
         historical_claims=(),
         peer_approved_amounts=(),
         evaluation_date=date(2026, 6, 6),
+        history_coverage={"HEALTH": date(2020, 1, 1)},
         ruleset=ACTIVE_RULESET,
     )
     risk_res = evaluate_risk(risk_in)
@@ -478,7 +477,7 @@ def test_acceptance_05_high_risk_routes_to_investigation_no_fraud_wording() -> N
         incident_location="Clinic",
         incident_description="Emergency surgery procedure",
         requested_amount=Decimal("100000.00"),
-        registered_date=date(2026, 1, 6),
+        registered_date=date(2026, 1, 26),
     )
     policy = PolicyInput(
         policy_id="pol-1",
@@ -501,18 +500,17 @@ def test_acceptance_05_high_risk_routes_to_investigation_no_fraud_wording() -> N
     )
     risk_in = RiskInput(
         claim=claim,
-        customer_name="Alice Customer",
-        customer_state_region="CA",
         policy=policy,
         coverage=cov,
         documents=(),
         historical_claims=(),
         peer_approved_amounts=(),
-        evaluation_date=date(2026, 1, 7),
+        evaluation_date=date(2026, 1, 27),
+        history_coverage={"HEALTH": date(2020, 1, 1)},
         ruleset=ACTIVE_RULESET,
     )
     risk_res = evaluate_risk(risk_in)
-    assert risk_res.score >= 25
+    assert risk_res.score >= 40
     assert risk_res.requires_investigation
 
     forbidden_words = {"fraud", "fraudulent", "fraudster", "scam", "guilty", "criminal"}

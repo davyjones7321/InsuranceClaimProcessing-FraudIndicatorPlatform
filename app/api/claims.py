@@ -54,7 +54,12 @@ from app.schemas.investigations import (
     InvestigationFindingResponse,
     InvestigationResponse,
 )
-from app.schemas.risk import RiskEvaluationResponse
+from app.schemas.risk import (
+    CompletenessWaiverRequest,
+    InvestigationFeedbackRequest,
+    ManualReferralRequest,
+    RiskEvaluationResponse,
+)
 from app.schemas.validation import ValidationRunResponse
 from app.security.access_log import log_access
 from app.security.rbac import (
@@ -136,10 +141,12 @@ def serialize_risk_evaluation_for_user(eval_run: Any, user: User) -> RiskEvaluat
     """Filter risk details per Decision D6."""
     resp = RiskEvaluationResponse.model_validate(eval_run)
     if user.role == UserRole.ASSESSOR:
-        # D6: Assessor gets category and completeness only; no indicator evidence
+        # D6: Assessor gets category and completeness only; no indicator evidence, no numeric score, no group scores
         resp.indicator_results = []
         resp.inputs_snapshot = {}
-        resp.score = 0
+        resp.score = None
+        resp.group_scores = {}
+        resp.routing_reasons = []
     return resp
 
 
@@ -855,6 +862,85 @@ def get_latest_risk_evaluation(
         return serialize_risk_evaluation_for_user(eval_run, current_user)
     except RiskServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/risk-waiver",
+    response_model=ClaimResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Record manager waiver for a claim with completeness INSUFFICIENT_DATA",
+    dependencies=[require_roles(UserRole.MANAGER, UserRole.ADMIN)],
+)
+def record_risk_completeness_waiver(
+    claim_id: uuid.UUID,
+    payload: CompletenessWaiverRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ClaimResponse:
+    """Advance claim from RISK_DATA_PENDING to READY_FOR_ASSESSMENT via explicit manager waiver."""
+    service = RiskService(db)
+    try:
+        claim = service.record_completeness_waiver(
+            claim_id=claim_id,
+            actor=current_user,
+            remarks=payload.remarks,
+        )
+        return serialize_claim_for_user(claim, current_user)
+    except RiskServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/refer-investigation",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Manually refer a claim to investigation with written justification",
+    dependencies=[require_roles(UserRole.ASSESSOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def refer_claim_to_investigation(
+    claim_id: uuid.UUID,
+    payload: ManualReferralRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationResponse:
+    """Refer any open claim to investigation with mandatory remarks."""
+    service = RiskService(db)
+    try:
+        inv = service.refer_to_investigation(
+            claim_id=claim_id,
+            actor=current_user,
+            remarks=payload.remarks,
+        )
+        return InvestigationResponse.model_validate(inv)
+    except RiskServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{claim_id}/investigations/{investigation_id}/feedback",
+    response_model=InvestigationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Record investigator structured feedback on indicators",
+    dependencies=[require_roles(UserRole.INVESTIGATOR, UserRole.MANAGER, UserRole.ADMIN)],
+)
+def record_claim_investigation_feedback(
+    claim_id: uuid.UUID,
+    investigation_id: uuid.UUID,
+    payload: InvestigationFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InvestigationResponse:
+    """Record investigator structured feedback on triggered indicators at closure (Task 13)."""
+    service = RiskService(db)
+    try:
+        inv = service.record_investigation_feedback(
+            investigation_id=investigation_id,
+            actor=current_user,
+            indicator_feedback=payload.feedback,
+        )
+        return InvestigationResponse.model_validate(inv)
+    except RiskServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

@@ -82,6 +82,7 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     ClaimStatus.READY_FOR_ASSESSMENT: frozenset(
         {
             ClaimStatus.ASSESSED,
+            ClaimStatus.UNDER_INVESTIGATION,  # P6 Task 10: manual referral
             ClaimStatus.REJECTED,  # Section G.78
             ClaimStatus.INFO_REQUESTED,  # Section G.78
         }
@@ -89,6 +90,7 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     ClaimStatus.ASSESSED: frozenset(
         {
             ClaimStatus.APPROVED,
+            ClaimStatus.UNDER_INVESTIGATION,  # P6 Task 10: manual referral
             ClaimStatus.REJECTED,
             ClaimStatus.INFO_REQUESTED,
         }

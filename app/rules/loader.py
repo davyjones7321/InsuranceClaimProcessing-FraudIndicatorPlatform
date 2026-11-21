@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from app.schemas.ruleset import validate_ruleset_dict
+
 
 class RulesetError(Exception):
     """Raised when ruleset loading or validation fails."""
@@ -42,12 +44,18 @@ def load_ruleset_from_string(content: str) -> tuple[dict[str, Any], str]:
         "ruleset_version",
         "engine_version",
         "validation_rules",
+        "risk_groups",
         "risk_indicators",
         "risk_thresholds",
     }
     missing = required_keys - set(parsed.keys())
     if missing:
         raise RulesetError(f"Ruleset is missing mandatory top-level keys: {missing}")
+
+    try:
+        validate_ruleset_dict(parsed)
+    except Exception as exc:
+        raise RulesetError(f"Ruleset schema validation failed: {exc}") from exc
 
     return parsed, sha256_hash
 

@@ -53,6 +53,7 @@ class SnapshotClaimModel(BaseModel):
     registered_date: str  # ISO date
     requested_amount: str
     insured_item_id: str | None = None
+    incident_group_id: str | None = None
     incident_location_present: bool = True
     incident_description_present: bool = True
 
@@ -123,6 +124,7 @@ class SnapshotHistoricalClaimModel(BaseModel):
     requested_amount: str
     status: str
     approved_amount: str | None = None
+    incident_group_id: str | None = None
 
 
 class SnapshotAssessmentComponentModel(BaseModel):
@@ -167,6 +169,7 @@ class RiskSnapshotModel(BaseModel):
     ruleset_version: str
     engine_version: str
     ruleset_hash: str | None = None
+    history_coverage: dict[str, str] = Field(default_factory=dict)
 
 
 class AssessmentSnapshotModel(BaseModel):
@@ -208,6 +211,7 @@ def serialize_validation_snapshot(
             registered_date=claim.registered_date.isoformat(),
             requested_amount=str(claim.requested_amount),
             insured_item_id=claim.insured_item_id,
+            incident_group_id=claim.incident_group_id,
             incident_location_present=bool(
                 claim.incident_location and claim.incident_location.strip()
             ),
@@ -294,6 +298,7 @@ def deserialize_validation_snapshot(
         requested_amount=Decimal(c.requested_amount),
         registered_date=date.fromisoformat(c.registered_date),
         insured_item_id=c.insured_item_id,
+        incident_group_id=c.incident_group_id,
     )
 
     policy_input: PolicyInput | None = None
@@ -386,6 +391,7 @@ def serialize_risk_snapshot(
             registered_date=claim.registered_date.isoformat(),
             requested_amount=str(claim.requested_amount),
             insured_item_id=claim.insured_item_id,
+            incident_group_id=claim.incident_group_id,
             incident_location_present=bool(
                 claim.incident_location and claim.incident_location.strip()
             ),
@@ -440,6 +446,7 @@ def serialize_risk_snapshot(
                 requested_amount=str(h.requested_amount),
                 status=h.status,
                 approved_amount=str(h.approved_amount) if h.approved_amount is not None else None,
+                incident_group_id=h.incident_group_id,
             )
             for h in risk_input.historical_claims
         ],
@@ -448,6 +455,7 @@ def serialize_risk_snapshot(
         ruleset_version=str(risk_input.ruleset.get("ruleset_version", "v1")),
         engine_version=str(risk_input.ruleset.get("engine_version", "1.0.0")),
         ruleset_hash=ruleset_hash or compute_ruleset_hash(risk_input.ruleset),
+        history_coverage={k: v.isoformat() for k, v in risk_input.history_coverage.items()},
     )
     return model.model_dump()
 
@@ -468,6 +476,7 @@ def deserialize_risk_snapshot(snapshot: dict[str, Any], ruleset: dict[str, Any])
         requested_amount=Decimal(c.requested_amount),
         registered_date=date.fromisoformat(c.registered_date),
         insured_item_id=c.insured_item_id,
+        incident_group_id=c.incident_group_id,
     )
 
     policy_input: PolicyInput | None = None
@@ -524,16 +533,16 @@ def deserialize_risk_snapshot(snapshot: dict[str, Any], ruleset: dict[str, Any])
             requested_amount=Decimal(h.requested_amount),
             status=h.status,
             approved_amount=Decimal(h.approved_amount) if h.approved_amount is not None else None,
+            incident_group_id=h.incident_group_id,
         )
         for h in model.historical_claims
     )
 
     peer_amounts = tuple(Decimal(a) for a in model.peer_approved_amounts)
+    hist_cov = {k: date.fromisoformat(v) for k, v in model.history_coverage.items()}
 
     return RiskInput(
         claim=claim_input,
-        customer_name="[REDACTED]",
-        customer_state_region=None,
         policy=policy_input,
         coverage=coverage_input,
         documents=documents,
@@ -541,6 +550,7 @@ def deserialize_risk_snapshot(snapshot: dict[str, Any], ruleset: dict[str, Any])
         peer_approved_amounts=peer_amounts,
         evaluation_date=date.fromisoformat(model.evaluation_date),
         ruleset=ruleset,
+        history_coverage=hist_cov,
     )
 
 

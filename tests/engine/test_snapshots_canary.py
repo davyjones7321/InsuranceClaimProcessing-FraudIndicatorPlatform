@@ -187,8 +187,6 @@ def test_risk_snapshot_canary_leak_protection() -> None:
     )
     risk_input = RiskInput(
         claim=claim,
-        customer_name=CANARY_NAME,
-        customer_state_region="West Bengal",
         policy=policy,
         coverage=None,
         documents=(),

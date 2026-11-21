@@ -127,7 +127,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         status_version=2,
     )
 
-    # Claim in VALIDATED status with Early Incident (Jan 10, 9 days after policy start -> triggers R05, weight 25)
+    # Claim in VALIDATED status with Early Incident (Jan 10, 9 days after policy start -> triggers R05, R03, R09 -> Score 40 HIGH)
     claim_early = Claim(
         id=uuid.uuid4(),
         claim_ref="CLM-2026-800002",
@@ -137,8 +137,8 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         incident_date=date(2026, 1, 10),
         incident_location="General Hospital, CA",
         incident_description="Emergency surgery shortly after start",
-        requested_amount=Decimal("15000.00"),
-        registered_at=datetime(2026, 1, 15, 10, 0, tzinfo=UTC),
+        requested_amount=Decimal("85000.00"),
+        registered_at=datetime(2026, 2, 5, 10, 0, tzinfo=UTC),
         registered_by=user_staff.id,
         channel=ClaimChannel.STAFF,
         status=ClaimStatus.VALIDATED,
@@ -227,13 +227,13 @@ def test_flagged_claim_routes_to_under_investigation_and_creates_record(
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
-    assert data["score"] == 25
-    assert data["category"] == "MEDIUM"
+    assert data["score"] == 40
+    assert data["category"] == "HIGH"
     assert data["requires_investigation"] is True
 
     r05_res = next(r for r in data["indicator_results"] if r["indicator_id"] == "R05")
     assert r05_res["triggered"] is True
-    assert r05_res["weight_applied"] == 25
+    assert r05_res["weight_applied"] == 15
 
     db_session.refresh(claim)
     assert claim.status == ClaimStatus.UNDER_INVESTIGATION

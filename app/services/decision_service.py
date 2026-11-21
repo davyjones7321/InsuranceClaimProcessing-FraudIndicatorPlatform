@@ -139,6 +139,16 @@ class DecisionService:
                     "Separation of duties violation: assessor who assessed this claim cannot decide it"
                 )
 
+        # 5c. Separation of duties (P6 Task 9): Confirmer of claim's incident group cannot decide it
+        if claim.incident_group_id is not None:
+            from app.db.models import IncidentGroup
+
+            group = self.db.get(IncidentGroup, claim.incident_group_id)
+            if group and group.confirmed_by_id == actor.id:
+                raise DecisionPermissionError(
+                    "Separation of duties violation: incident group confirmer cannot decide claims in the group"
+                )
+
         # 6. Mandatory remarks constraint
         clean_remarks = payload.remarks.strip()
         if len(clean_remarks) < settings.MIN_DECISION_REMARKS_LENGTH:

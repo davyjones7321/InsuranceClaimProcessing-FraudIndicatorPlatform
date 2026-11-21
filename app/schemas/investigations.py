@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,5 +60,8 @@ class InvestigationResponse(BaseModel):
     outcome: InvestigationOutcome | None = None
     opened_at: datetime
     closed_at: datetime | None = None
+    referral_type: str | None = None
+    referral_remarks: str | None = None
+    indicator_feedback: dict[str, Any] | None = None
     created_at: datetime
     findings: list[InvestigationFindingResponse] = []

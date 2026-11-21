@@ -15,6 +15,8 @@ from app.api.claims import router as claims_router
 from app.api.coverages import router as coverages_router
 from app.api.customers import router as customers_router
 from app.api.health import router as health_router
+from app.api.incident_groups import router as incident_groups_router
+from app.api.investigations import router as investigations_router
 from app.api.master_data_import import router as master_data_import_router
 from app.api.policies import router as policies_router
 from app.api.required_documents import router as required_documents_router
@@ -145,4 +147,6 @@ app.include_router(coverages_router)
 app.include_router(required_documents_router)
 app.include_router(master_data_import_router)
 app.include_router(claims_router)
+app.include_router(incident_groups_router)
+app.include_router(investigations_router)
 app.include_router(analytics_router)

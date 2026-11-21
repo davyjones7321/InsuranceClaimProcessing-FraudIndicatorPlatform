@@ -610,4 +610,117 @@
 - **Mypy**: Passed (`Success: no issues found in 66 source files`).
 - **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
 - **Alembic Migrations**: Passed (`test_alembic_migrations_upgrade_and_downgrade` passed upgrade/downgrade cycle).
-- **Status**: Ready for Owner Review. STOPPED at Phase P5 Gate.
+- **Status**: Completed.
+
+---
+
+## Phase P6: Risk governance, incident groups, ruleset lifecycle, and backtest
+
+### Overview
+- **Branch**: `hardening/v1`
+- **Focus**: Pure deterministic risk governance, indicator statuses, history coverage, distinct incident counting, zero protected attributes, incident groups (Decision D12, separation of duties check 5c), completeness criteria (Decision D4, `RISK_DATA_PENDING`, manager waiver), operational backtest reporting (`scripts/backtest.py`), and structured investigator feedback.
+
+### Task Log
+
+#### Task 1: Ruleset Schema Definition and Validation
+- **Files Created / Changed**: `app/schemas/ruleset.py`, `app/rules/ruleset_v1.yaml`, `app/rules/loader.py`
+- **Details**:
+  - Implemented strict Pydantic schemas validating indicator definitions, weights, group caps, thresholds, and product applicability.
+  - Upgraded `app/rules/ruleset_v1.yaml` to specify all 10 indicators per Appendix A of `HARDENING_PROMPT.md` with explicit weights, group caps, pilot banners, and mandatory status indicators.
+
+#### Task 2: Ruleset Lifecycle and Four-Eyes Approval
+- **Files Changed**: `app/db/models.py`, `alembic/versions/0007_risk_governance.py`, `app/audit/schema.py`
+- **Details**:
+  - Updated `Ruleset` model with status (`DRAFT`, `ACTIVE`, `RETIRED`), `engine_version`, `ruleset_hash`, `author_id`, `approver_id`, and `evidence_reference`.
+  - Added database check constraints `chk_ruleset_four_eyes` (author != approver) and `chk_ruleset_status`.
+  - Added audit actions `RULESET_CREATED`, `RULESET_ACTIVATED`, `RULESET_RETIRED`.
+
+#### Task 3: Pure Risk Engine Order of Operations
+- **Files Changed**: `app/engine/risk.py`, `tests/engine/test_risk_engine.py`
+- **Details**:
+  - Follows exact evaluation order: sort inputs deterministically, evaluate indicators R01 through R10 in fixed ID sequence, evaluate completeness, apply group caps (FREQUENCY, AMOUNT, TIMING, CONSISTENCY, DUPLICATE), aggregate score, determine category (`LOW`, `MEDIUM`, `HIGH`, `UNASSESSED`), compute composed label (`CONFIDENT`, `PROVISIONAL`, `UNASSESSED`), route to investigation if score >= threshold or sufficient alone.
+  - Implemented all 8 worked examples from Appendix A with bit-for-bit test verification.
+
+#### Task 4: Indicator Evaluation Statuses
+- **Files Changed**: `app/engine/types.py`, `app/engine/risk.py`, `app/db/models.py`
+- **Details**:
+  - Explicit five-way indicator status: `TRIGGERED`, `NOT_TRIGGERED`, `SKIPPED`, `NOT_APPLICABLE`, `DISABLED`.
+  - Stored on `RiskIndicatorResult` model with `skip_reason`, `evidence_level`, and `sufficient_alone`.
+
+#### Task 5: Completeness Criteria and RISK_DATA_PENDING
+- **Files Changed**: `app/engine/risk.py`, `app/domain/enums.py`, `app/domain/state_machine.py`, `app/services/risk_service.py`, `app/api/claims.py`
+- **Details**:
+  - Completeness evaluated as `COMPLETE`, `PARTIAL`, or `INSUFFICIENT_DATA`.
+  - Mandatory indicators (`R05`, `R06`, `R07`, `R09`) and threshold minimum evaluated weight percentage (60%) govern completeness.
+  - Claims with `INSUFFICIENT_DATA` output score `None`, category `UNASSESSED`, and enter state `RISK_DATA_PENDING`.
+  - Endpoint `POST /api/claims/{claim_id}/risk-waiver` allows managers to record formal completeness waiver, advancing claim to `READY_FOR_ASSESSMENT`.
+
+#### Task 6: History Coverage Window Tracking
+- **Files Created / Changed**: `app/db/models.py`, `app/engine/risk.py`, `app/services/risk_service.py`, `alembic/versions/0007_risk_governance.py`
+- **Details**:
+  - Created `HistoryCoverage` model tracking `loaded_from` per product type, set by authorized actor with evidence reference.
+  - Lookback indicators (`R01`, `R02`, `R04`) evaluate lookback window against `loaded_from`; if lookback window extends prior to `loaded_from`, indicator is `SKIPPED` with reason `HISTORY_WINDOW_NOT_COVERED` and weight 0 applied.
+
+#### Task 7: Distinct Incident Counting for Frequency Indicators
+- **Files Changed**: `app/engine/risk.py`, `tests/engine/test_risk_engine.py`
+- **Details**:
+  - R01 and R02 group multiple claims sharing the same customer and `incident_date` into a single distinct incident, preventing multi-claim single events from artificially inflating frequency scores.
+
+#### Task 8: Zero Protected Attributes in Risk Inputs
+- **Files Changed**: `app/engine/types.py`, `app/engine/risk.py`, `tests/security/test_protected_attributes.py`
+- **Details**:
+  - Removed all protected attributes (`customer_name`, `customer_dob`, `customer_state_region`, `customer_address`, gender, marital status) from `RiskInput`.
+  - R08 operates strictly on human document attestation outcomes (`MISMATCH`) and document date anomalies relative to loss date, without name or geographic string matching.
+  - Dedicated AST and introspection test verifies zero protected attributes in risk engine inputs.
+
+#### Task 9: Incident Groups Governance and Separation of Duties (Decision D12)
+- **Files Created / Changed**: `app/db/models.py`, `app/services/incident_group_service.py`, `app/api/incident_groups.py`, `app/services/decision_service.py`, `alembic/versions/0007_risk_governance.py`
+- **Details**:
+  - Implemented `IncidentGroup` and `IncidentGroupMember` with append-only revisions, date span limit (365 days), and group size limit (10).
+  - Four-eyes separation enforced: proposer cannot confirm their own incident group.
+  - Endpoints implemented: `POST /propose`, `POST /{id}/confirm`, `POST /{id}/unlink`, `POST /{id}/merge`, `POST /{id}/split`, `GET /{id}`.
+  - Separation of duties check 5c implemented in `DecisionService.make_decision`: the confirmed actor of a claim's incident group is mechanically barred from deciding that claim (`DecisionPermissionError`).
+
+#### Task 10: Manual Investigation Referral
+- **Files Changed**: `app/api/claims.py`, `app/services/risk_service.py`, `app/audit/schema.py`
+- **Details**:
+  - Endpoint `POST /api/claims/{claim_id}/refer-investigation` allows assessors and managers to refer claims in `READY_FOR_ASSESSMENT` directly to `UNDER_INVESTIGATION`.
+  - Requires mandatory justification remarks (minimum 20 chars).
+  - Emits `MANUAL_INVESTIGATION_REFERRAL` audit event.
+
+#### Task 11: Wording and No Auto-Reject Verification
+- **Files Created**: `tests/security/test_wording_and_no_rejection.py`
+- **Details**:
+  - AST inspection proves risk engine and service never transition claims to `REJECTED`.
+  - Regex scanner verifies zero accusatory or fraud-declaring wording across all user-facing code, API schemas, and templates.
+  - Integration test verifies high-risk claim routes to `UNDER_INVESTIGATION` with neutral indicator descriptions.
+
+#### Task 12: Backtest Operational Tooling
+- **Files Created**: `scripts/backtest.py`, `tests/scripts/test_backtest_script.py`
+- **Details**:
+  - Operational script computes flag rates, indicator breakdown, pairwise co-occurrence matrix, monthly stability, product stability, threshold sensitivity (20-70), investigator workload, and concern rates.
+  - Enforces mandatory fixed disclaimer and verification bias caveats.
+  - Prohibits forbidden words ("accuracy", "detection rate").
+
+#### Task 13: Structured Investigator Feedback
+- **Files Created / Changed**: `app/api/investigations.py`, `app/services/risk_service.py`, `app/schemas/investigations.py`, `app/schemas/risk.py`
+- **Details**:
+  - Allows assigned investigator or manager to record structured feedback per indicator (`HELPFUL`, `UNHELPFUL`, `FALSE_POSITIVE`, `MISLEADING`, `CORROBORATED`).
+  - Raw notes stored in database model; notes hashed (`notes_sha256`) for audit log payloads to satisfy `FreeTextAuditError` guardrails.
+  - Endpoint `POST /api/investigations/{id}/feedback` and `POST /api/claims/{id}/investigations/{inv_id}/feedback` implemented.
+
+---
+
+### Phase P6 Gate Summary
+- **Total Tests**: 206 passed in 34.26s across entire project.
+- **P6 Integration Suite**: 4 passed (`tests/integration/test_p6_risk_governance.py`).
+- **Risk Engine Appendix A Suite**: 13 passed (`tests/engine/test_risk_engine.py`).
+- **Backtest Tooling Suite**: 2 passed (`tests/scripts/test_backtest_script.py`).
+- **Security & Wording Suite**: 3 passed (`tests/security/test_wording_and_no_rejection.py`).
+- **Protected Attributes Suite**: 1 passed (`tests/security/test_protected_attributes.py`).
+- **Ruff Lint**: Passed (`All checks passed!`).
+- **Ruff Format**: Passed (`154 files already formatted`).
+- **Mypy**: Passed (`Success: no issues found in 70 source files`).
+- **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
+- **Alembic Migrations**: Passed (`downgrade -1` and `upgrade head` cycle verified on migration 0007).
+- **Status**: Ready for Owner Review. STOPPED at Phase P6 Gate.

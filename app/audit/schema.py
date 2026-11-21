@@ -248,12 +248,14 @@ ACTION_SCHEMAS: dict[str, frozenset[str]] = {
             "score",
             "triggered_count",
             "routed_to_investigation",
+            "completeness",
             "completeness_status",
+            "composed_label",
             "evaluation_status",
             "requires_investigation",
         }
     ),
-    "INVESTIGATION_CREATED": frozenset({"score", "category", "status"}),
+    "INVESTIGATION_CREATED": frozenset({"score", "category", "status", "referral_type"}),
     "INVESTIGATION_ASSIGNED": frozenset({"investigation_id", "assigned_to"}),
     "INVESTIGATION_STARTED": frozenset({"investigation_id", "previous_status"}),
     "INVESTIGATION_UNDER_REVIEW": frozenset({"investigation_id", "previous_status"}),
@@ -266,6 +268,67 @@ ACTION_SCHEMAS: dict[str, frozenset[str]] = {
         {"investigation_id", "outcome", "findings_count", "remarks_sha256", "summary_sha256"}
     ),
     "INVESTIGATION_RESOLVED": frozenset({"investigation_id", "resolution", "notes_sha256"}),
+    "MANUAL_INVESTIGATION_REFERRAL": frozenset(
+        {
+            "from_status",
+            "to_status",
+            "status_version",
+            "remarks_sha256",
+            "referral_type",
+            "investigation_id",
+        }
+    ),
+    "RISK_COMPLETENESS_WAIVER": frozenset(
+        {
+            "from_status",
+            "to_status",
+            "status_version",
+            "remarks_sha256",
+        }
+    ),
+    "INVESTIGATION_FEEDBACK_RECORDED": frozenset({"feedback"}),
+    # Incident groups
+    "INCIDENT_GROUP_PROPOSED": frozenset(
+        {
+            "group_ref",
+            "customer_id",
+            "member_claim_ids",
+            "reason_sha256",
+        }
+    ),
+    "CLAIM_INCIDENT_GROUP_PROPOSED": frozenset({"group_id", "group_ref"}),
+    "INCIDENT_GROUP_CONFIRMED": frozenset(
+        {
+            "group_ref",
+            "confirmed_by_id",
+            "remarks_sha256",
+        }
+    ),
+    "CLAIM_INCIDENT_GROUP_LINKED": frozenset({"group_id", "group_ref"}),
+    "INCIDENT_GROUP_CLAIM_UNLINKED": frozenset(
+        {
+            "group_ref",
+            "claim_id",
+            "reason",
+            "remarks_sha256",
+        }
+    ),
+    "INCIDENT_GROUPS_MERGED": frozenset(
+        {
+            "target_group_ref",
+            "source_group_ref",
+            "merged_claim_count",
+            "remarks_sha256",
+        }
+    ),
+    "INCIDENT_GROUP_SPLIT": frozenset(
+        {
+            "source_group_ref",
+            "new_group_ref",
+            "split_claims_count",
+            "remarks_sha256",
+        }
+    ),
     # Assessment & Decision
     "ASSESSMENT_COMPLETED": frozenset(
         {

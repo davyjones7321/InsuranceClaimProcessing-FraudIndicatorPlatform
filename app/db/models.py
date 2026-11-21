@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,14 +36,18 @@ from app.domain.enums import (
     CoverageLedgerEntryType,
     DecisionType,
     DocumentStatus,
-    IndicatorStatus,
+    EvidenceLevel,
+    IncidentGroupStatus,
+    IndicatorEvaluationStatus,
     InvestigationOutcome,
     InvestigationStatus,
     LimitScope,
     PolicyStatus,
     ProductType,
     RiskCategory,
+    RiskCompleteness,
     RuleOutcome,
+    RulesetLifecycle,
     UserRole,
     ValidationOutcome,
     VerificationRunType,
@@ -333,6 +338,7 @@ class Claim(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint("requested_amount > 0", name="chk_claim_requested_amount_positive"),
         UniqueConstraint("source_system", "external_ref", name="uq_claim_source_ext"),
+        UniqueConstraint("id", "customer_id", name="uq_claims_id_customer_id"),
         Index("ix_claim_status_reg_date", "status", "registered_at"),
     )
 
@@ -532,18 +538,38 @@ class RiskEvaluation(Base, UUIDPrimaryKeyMixin):
     engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
     ruleset_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     evaluated_on: Mapped[date] = mapped_column(Date, nullable=False)
-    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     category: Mapped[RiskCategory] = mapped_column(
         Enum(RiskCategory, name="risk_category"), nullable=False
     )
+    completeness: Mapped[RiskCompleteness] = mapped_column(
+        Enum(RiskCompleteness, name="risk_completeness"),
+        nullable=False,
+        default=RiskCompleteness.COMPLETE,
+    )
+    composed_label: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="LOW (COMPLETE)"
+    )
     requires_investigation: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    routing_reasons: Mapped[list[str]] = mapped_column(JsonType, nullable=False, default=list)
+    pilot_banner: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="PILOT: Risk indicators are experimental and unvalidated. Manual review required.",
+    )
+    group_scores: Mapped[dict[str, int]] = mapped_column(JsonType, nullable=False, default=dict)
     inputs_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     calculation_trace: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
-    __table_args__ = (CheckConstraint("score >= 0 AND score <= 100", name="chk_risk_score_range"),)
+    __table_args__ = (
+        CheckConstraint(
+            "(category = 'UNASSESSED' AND score IS NULL) OR (category != 'UNASSESSED' AND score IS NOT NULL AND score >= 0 AND score <= 100)",
+            name="chk_risk_score_unassessed_null",
+        ),
+    )
 
     claim: Mapped["Claim"] = relationship(back_populates="risk_evaluations")
     indicator_results: Mapped[list["RiskIndicatorResult"]] = relationship(
@@ -562,14 +588,21 @@ class RiskIndicatorResult(Base, UUIDPrimaryKeyMixin):
     )
     indicator_id: Mapped[str] = mapped_column(String(32), nullable=False)
     indicator_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    group: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     triggered: Mapped[bool] = mapped_column(Boolean, nullable=False)
     weight_applied: Mapped[int] = mapped_column(Integer, nullable=False)
+    sufficient_alone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    evidence_level: Mapped[EvidenceLevel] = mapped_column(
+        Enum(EvidenceLevel, name="evidence_level"), nullable=False, default=EvidenceLevel.NONE
+    )
+    skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     evidence: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[IndicatorStatus] = mapped_column(
-        Enum(IndicatorStatus, name="indicator_status"),
+    status: Mapped[IndicatorEvaluationStatus] = mapped_column(
+        Enum(IndicatorEvaluationStatus, name="indicator_evaluation_status"),
         nullable=False,
-        default=IndicatorStatus.PILOT,
+        default=IndicatorEvaluationStatus.NOT_TRIGGERED,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
@@ -632,6 +665,9 @@ class Investigation(Base, UUIDPrimaryKeyMixin):
         nullable=False,
         default=InvestigationStatus.ASSIGNED,
     )
+    referral_type: Mapped[str] = mapped_column(String(64), nullable=False, default="AUTOMATED")
+    referral_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    indicator_feedback: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     outcome: Mapped[InvestigationOutcome | None] = mapped_column(
         Enum(InvestigationOutcome, name="investigation_outcome"), nullable=True
     )
@@ -807,19 +843,52 @@ class VerificationRun(Base, UUIDPrimaryKeyMixin):
     )
 
 
-class Ruleset(Base, UUIDPrimaryKeyMixin):
+class Ruleset(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Governance lifecycle of business rulesets (P6 Task 2)."""
+
     __tablename__ = "rulesets"
 
     version: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
-    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    ruleset_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    status: Mapped[RulesetLifecycle] = mapped_column(
+        Enum(RulesetLifecycle, name="ruleset_lifecycle"),
+        nullable=False,
+        default=RulesetLifecycle.DRAFT,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    approver_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     activated_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    evidence_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    backtest_report_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    review_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    risk_acceptance_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    risk_acceptance_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, nullable=False
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "approver_id IS NULL OR author_id != approver_id", name="chk_ruleset_four_eyes"
+        ),
+        CheckConstraint(
+            "status NOT IN ('APPROVED', 'ACTIVE') OR (approver_id IS NOT NULL AND backtest_report_hash IS NOT NULL)",
+            name="chk_ruleset_approved_reqs",
+        ),
     )
+
+    author: Mapped["User | None"] = relationship(foreign_keys=[author_id])
+    approver: Mapped["User | None"] = relationship(foreign_keys=[approver_id])
+    activator: Mapped["User | None"] = relationship(foreign_keys=[activated_by])
 
 
 class UserSession(Base):
@@ -897,3 +966,115 @@ class ImportReject(Base, UUIDPrimaryKeyMixin):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+
+
+class HistoryCoverage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """History coverage loaded_from date per product type (P6 Task 6, Decision D14)."""
+
+    __tablename__ = "history_coverage"
+
+    product_type: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    loaded_from: Mapped[date] = mapped_column(Date, nullable=False)
+    set_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    evidence_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    set_by: Mapped["User | None"] = relationship()
+
+
+class IncidentGroup(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Incident group linking multiple claims of the same customer (P6 Task 9, Decision D12)."""
+
+    __tablename__ = "incident_groups"
+
+    group_ref: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    customer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[IncidentGroupStatus] = mapped_column(
+        Enum(IncidentGroupStatus, name="incident_group_status"),
+        nullable=False,
+        default=IncidentGroupStatus.PROPOSED,
+    )
+    proposed_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    confirmed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    proposal_reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("id", "customer_id", name="uq_incident_groups_id_customer_id"),
+        CheckConstraint(
+            "confirmed_by_id IS NULL OR proposed_by_id != confirmed_by_id",
+            name="chk_incident_group_four_eyes",
+        ),
+    )
+
+    customer: Mapped["Customer"] = relationship()
+    proposed_by: Mapped["User"] = relationship(foreign_keys=[proposed_by_id])
+    confirmed_by: Mapped["User | None"] = relationship(foreign_keys=[confirmed_by_id])
+    members: Mapped[list["IncidentGroupMember"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+
+
+class IncidentGroupMember(Base, UUIDPrimaryKeyMixin):
+    """Append-only revision member of an incident group (P6 Task 9)."""
+
+    __tablename__ = "incident_group_members"
+
+    incident_group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    claim_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    customer_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    rev: Mapped[int] = mapped_column(Integer, nullable=False)
+    prev_rev: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["claim_id", "customer_id"],
+            ["claims.id", "claims.customer_id"],
+            name="fk_member_claim_cust",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["incident_group_id", "customer_id"],
+            ["incident_groups.id", "incident_groups.customer_id"],
+            name="fk_member_group_cust",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "(rev = 1 AND prev_rev IS NULL) OR (rev > 1 AND prev_rev IS NOT NULL AND prev_rev = rev - 1)",
+            name="chk_incident_member_rev_seq",
+        ),
+        UniqueConstraint(
+            "incident_group_id", "claim_id", "rev", name="uq_incident_group_member_rev"
+        ),
+        Index(
+            "uq_incident_group_member_active_claim",
+            "claim_id",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
+
+    group: Mapped["IncidentGroup"] = relationship(back_populates="members")
+    claim: Mapped["Claim"] = relationship(overlaps="group,members")
+    created_by: Mapped["User"] = relationship()

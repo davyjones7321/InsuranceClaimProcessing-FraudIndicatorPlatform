@@ -89,11 +89,44 @@ class RiskCategory(StrEnum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+    UNASSESSED = "UNASSESSED"
+
+
+class EvidenceLevel(StrEnum):
+    NONE = "NONE"
+    REVIEWED = "REVIEWED"
+
+
+class IndicatorEvaluationStatus(StrEnum):
+    TRIGGERED = "TRIGGERED"
+    NOT_TRIGGERED = "NOT_TRIGGERED"
+    SKIPPED = "SKIPPED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    DISABLED = "DISABLED"
+
+
+class RiskCompleteness(StrEnum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+
+
+class RulesetLifecycle(StrEnum):
+    DRAFT = "DRAFT"
+    APPROVED = "APPROVED"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
+
+
+class IncidentGroupStatus(StrEnum):
+    PROPOSED = "PROPOSED"
+    CONFIRMED = "CONFIRMED"
+    DISSOLVED = "DISSOLVED"
 
 
 class IndicatorStatus(StrEnum):
     PILOT = "PILOT"
-    VALIDATED = "VALIDATED"
+    REVIEWED = "REVIEWED"
 
 
 class InvestigationStatus(StrEnum):
