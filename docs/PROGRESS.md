@@ -723,4 +723,96 @@
 - **Mypy**: Passed (`Success: no issues found in 70 source files`).
 - **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
 - **Alembic Migrations**: Passed (`downgrade -1` and `upgrade head` cycle verified on migration 0007).
-- **Status**: Ready for Owner Review. STOPPED at Phase P6 Gate.
+- **Status**: Completed and approved.
+
+---
+
+## Phase P7: PostgreSQL tests, CI, imports, and operations
+
+### Task Log
+
+#### Task 1: pytest on PostgreSQL and Fail-Fast Configuration (Fix F10)
+- **Files Changed**: `tests/conftest.py`
+- **Details**:
+  - Enforced connection probe when `TEST_DATABASE_URL`, `DATABASE_URL`, or `REQUIRE_POSTGRES=1` targets PostgreSQL; fails fast immediately with `RuntimeError` if PostgreSQL is unreachable.
+  - Documented written justification for local developer offline SQLite fallback: in-memory SQLite is reserved strictly for local development without an active PostgreSQL daemon, while live PostgreSQL is required and enforced in CI, staging, and acceptance pipelines.
+  - Implemented clean schema reset for PostgreSQL via `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`.
+
+#### Task 2: CI Pipeline Hardening
+- **Files Changed**: `.github/workflows/ci.yml`, `pyproject.toml`
+- **Details**:
+  - Added PostgreSQL 16 service container with health check.
+  - Added Alembic migration drill (`alembic upgrade head` -> `downgrade base` -> `upgrade head`).
+  - Added strict coverage gates: `--cov-fail-under=90` on rules engine and `--cov-fail-under=80` overall.
+  - Added security tooling: SAST (`bandit`), dependency audit (`pip-audit`), secret scanning (`gitleaks`), container image scan (`trivy-action`).
+  - Added conditional OWASP ZAP baseline scan reported as `NOT RUN` (never passed) when staging URL is absent.
+  - Added automated PostgreSQL backup and restore drill step.
+
+#### Task 3: Versioned Imports, Idempotent Upserts, and History Load Tracking
+- **Files Changed**: `app/schemas/master_data.py`, `app/services/import_service.py`, `app/audit/schema.py`
+- **Details**:
+  - Added `ClaimImportCreate` schema supporting historical and external claims with dry-run support.
+  - Implemented lookup priority on `UNIQUE(source_system, external_ref)` where both populated for Customer, Policy, and Claim before falling back to business natural keys.
+  - Missing or invalid coverage terms rejected into `import_rejects` table.
+  - Historical claim imports automatically record or update `HistoryCoverage.loaded_from` with the earliest incident date.
+  - Added chunked transaction processing and batch summary audit events (`IMPORT_MASTER_DATA`).
+  - Added CSV import support for claims.
+
+#### Task 4: Antivirus Scanner Hook
+- **Files Created / Changed**: `app/security/antivirus.py`, `app/config.py`, `app/services/claim_service.py`, `app/audit/schema.py`
+- **Details**:
+  - Implemented `ScanStatus` (`INACTIVE`, `CLEAN`, `INFECTED`, `ERROR`) and `ScanResult`.
+  - Default status is `INACTIVE` until external scanner (ClamAV daemon or ICAP) is configured.
+  - Wired hook into `ClaimService.upload_document`; blocks malware with `ClaimValidationError` and records `antivirus_status` in `DOCUMENT_UPLOADED` audit event.
+
+#### Task 5: Retention Report and Legal Hold Tooling (Decision D10)
+- **Files Created / Changed**: `scripts/retention_report.py`, `app/db/models.py`, `alembic/versions/0008_operations_job_runs_and_retention.py`
+- **Details**:
+  - Added `legal_hold` boolean column to `Claim` model (default `False`, indexed).
+  - Built report-only `scripts/retention_report.py` evaluating records against Decision D10 retention periods (10y claim post-final, 10y audit log, 365d import rejects, 730d job/verification runs, 90d login attempts, 30d expired sessions).
+  - Strictly non-destructive: modifies and deletes zero rows.
+  - Claims with `legal_hold=True` are exempted from retention review.
+
+#### Task 6: Platform Scheduler Jobs and Invariant Guarantee
+- **Files Created / Changed**: `scripts/scheduler.py`, `app/db/models.py`, `app/domain/enums.py`, `alembic/versions/0008_operations_job_runs_and_retention.py`
+- **Details**:
+  - Added `JobRun` model and `JobStatus` enum (`PENDING`, `RUNNING`, `SUCCESS`, `FAILED`, `MISSED`).
+  - Implemented runner for 8 operational jobs: `audit_verification_incremental`, `audit_verification_full`, `daily_anchor`, `reconciliation`, `cleanup_sessions`, `cleanup_login_attempts`, `backup`, `retention_report`.
+  - Enforced mechanical invariant: Pre- and post-execution claim status snapshot check guarantees NO scheduler job can ever mutate claim statuses.
+  - Implemented missed-run alert detector logging `MISSED` status if schedule interval exceeded.
+
+#### Task 7: PostgreSQL Backup and Restore Acceptance Drill
+- **Files Created**: `scripts/backup_restore_drill.py`
+- **Details**:
+  - Strict PostgreSQL acceptance drill utilizing `pg_dump` and restoring to an isolated database target.
+  - Compares row counts across all domain entities between source and restored targets.
+  - Performs 100% cryptographic HMAC-SHA256 audit chain verification on restored database.
+  - Prohibits SQLite fallback or seeded substitutes for production acceptance.
+
+#### Task 8: Security Roles, Keys, and Escrow Architecture
+- **Files Created**: `docs/SECURITY_ROLES_AND_KEYS.md`
+- **Details**:
+  - Documented database role separation: `migrator`, `app_rw` (append-only audit), `audit_verifier` (read-only), and `anchor_writer`.
+  - Documented TLS 1.3 in-transit encryption, AWS KMS at-rest encryption, and encrypted backup requirements.
+  - Documented dual-custody escrow procedures for `AUDIT_HMAC_KEY` (stored separately from backups).
+  - Documented incident response protocols for suspected key compromise.
+
+#### Task 9: Operational Runbook Expansion
+- **Files Changed**: `docs/RUNBOOK.md`
+- **Details**:
+  - Added handling of cryptographic audit chain breaks and reconciliation mismatches.
+  - Documented client organizational responsibilities (not built by platform): lawful basis and consent wording, formal retention schedules, manual two-approver erasure procedure, breach notification timelines, DPIA, and independent third-party penetration testing.
+
+---
+
+### Phase P7 Gate Summary
+- **Total Tests**: 216 passed, 9 warnings in 46.61s across entire test suite.
+- **P7 Operations Integration Suite**: 10 passed (`tests/integration/test_p7_operations.py`).
+- **Overall Statement Coverage**: 85% (Threshold >= 80% satisfied).
+- **Rules Engine Coverage**: 95% - 100% (Threshold >= 90% satisfied).
+- **Ruff Lint**: Passed (`All checks passed!`).
+- **Ruff Format**: Passed (`161 files already formatted`).
+- **Mypy**: Passed (`Success: no issues found in 71 source files`).
+- **Import Linter**: Passed (`Engine determinism: 1 kept, 0 broken`).
+- **Alembic Migrations**: Passed (`downgrade -1` and `upgrade head` cycle verified on migration 0008).
+- **Status**: Ready for Owner Review. STOPPED at Phase P7 Gate. Per prompt instructions, do NOT proceed to Phase P8 autonomously.

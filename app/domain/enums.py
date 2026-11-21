@@ -162,3 +162,11 @@ class AuditAction(StrEnum):
 class VerificationRunType(StrEnum):
     INCREMENTAL = "INCREMENTAL"
     FULL = "FULL"
+
+
+class JobStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    MISSED = "MISSED"

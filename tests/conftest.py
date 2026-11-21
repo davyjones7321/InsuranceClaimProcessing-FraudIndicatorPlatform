@@ -5,7 +5,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -21,11 +21,33 @@ from app.domain.enums import UserRole
 from app.main import app
 from app.security.password import hash_password
 
-# Use environment DATABASE_URL if configured for PostgreSQL, otherwise in-memory SQLite
+# ==============================================================================
+# Database Configuration & Written Justification (Fix F10, Phase P7 Task 1)
+# ==============================================================================
+# WRITTEN JUSTIFICATION FOR LOCAL OFFLINE SQLITE FALLBACK:
+# Local developer environments operating without an active PostgreSQL daemon
+# use an isolated in-memory SQLite database for rapid offline utility and component
+# test execution. Live PostgreSQL is strictly required and enforced in CI,
+# staging, and acceptance pipelines via TEST_DATABASE_URL or REQUIRE_POSTGRES=1.
+# When PostgreSQL is targeted, connection failures fail fast with RuntimeError
+# and never skip or silently fall back.
+# ==============================================================================
 env_db = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
-if env_db and "postgresql" in env_db:
-    TEST_DATABASE_URL = env_db
-    test_engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+require_postgres = os.environ.get("REQUIRE_POSTGRES", "0").lower() in ("1", "true", "yes")
+
+if (env_db and "postgresql" in env_db) or require_postgres:
+    TEST_DATABASE_URL = (
+        env_db or "postgresql+psycopg://postgres:postgres@localhost:5432/insurance_claims_test"
+    )
+    try:
+        test_engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+        with test_engine.connect() as probe_conn:
+            probe_conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise RuntimeError(
+            f"FATAL (Fix F10): PostgreSQL test database is required at '{TEST_DATABASE_URL}' but is unreachable. "
+            f"PostgreSQL-dependent tests must fail fast instead of skipping. Error: {exc}"
+        ) from exc
 else:
     TEST_DATABASE_URL = "sqlite:///:memory:"
     test_engine = create_engine(
@@ -47,7 +69,12 @@ def clean_db() -> Generator[None, None, None]:
     """Create fresh schema before each test and drop afterwards."""
     Base.metadata.create_all(bind=test_engine)
     yield
-    Base.metadata.drop_all(bind=test_engine)
+    if "postgresql" in str(test_engine.url):
+        with test_engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+            conn.commit()
+    else:
+        Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture

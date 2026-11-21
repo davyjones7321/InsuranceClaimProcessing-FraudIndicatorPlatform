@@ -36,6 +36,7 @@ from app.domain.state_machine import validate_transition
 from app.schemas.claims import ClaimCreate, ClaimStatusTransitionRequest
 from app.schemas.documents import DocumentReviewRequest, IdentityAttestationCreate
 from app.security.access_log import log_access
+from app.security.antivirus import InfectedFileError, scan_file
 from app.security.rbac import (
     PermissionDeniedError,
     check_claim_access,
@@ -280,6 +281,12 @@ class ClaimService:
         # Object-level check: customers can only upload to own claims; staff to registered/assigned
         check_claim_access(actor, claim, action="MUTATE")
 
+        # Antivirus scanning hook (P7 Task 4)
+        try:
+            scan_result = scan_file(content=content, file_name=file_name, mime_type=mime_type)
+        except InfectedFileError as exc:
+            raise ClaimValidationError(str(exc)) from exc
+
         # Section B.16: Superseding. Replacing prior row marks prior row SUPERSEDED
         existing_docs = self.db.scalars(
             select(ClaimDocument).where(
@@ -344,6 +351,7 @@ class ClaimService:
                 "sha256": sha256_hash,
                 "size_bytes": size_bytes,
                 "mime_type": mime_type,
+                "antivirus_status": scan_result.status.value,
             },
         )
         self.db.flush()

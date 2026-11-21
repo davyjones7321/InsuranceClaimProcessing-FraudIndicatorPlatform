@@ -332,6 +332,9 @@ class Claim(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         index=True,
     )
     status_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    legal_hold: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false"), index=True
+    )
     source_system: Mapped[str | None] = mapped_column(String(64), nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
@@ -1078,3 +1081,19 @@ class IncidentGroupMember(Base, UUIDPrimaryKeyMixin):
     group: Mapped["IncidentGroup"] = relationship(back_populates="members")
     claim: Mapped["Claim"] = relationship(overlaps="group,members")
     created_by: Mapped["User"] = relationship()
+
+
+class JobRun(Base, UUIDPrimaryKeyMixin):
+    """Execution record for platform cron and scheduled operational jobs (Phase P7 Task 6)."""
+
+    __tablename__ = "job_runs"
+
+    job_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="RUNNING")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    records_processed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

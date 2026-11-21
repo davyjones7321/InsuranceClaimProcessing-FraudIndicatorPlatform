@@ -7,7 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.enums import LimitScope, PolicyStatus, ProductType
+from app.domain.enums import (
+    ClaimChannel,
+    ClaimStatus,
+    LimitScope,
+    PolicyStatus,
+    ProductType,
+)
 
 
 # Customer Schemas
@@ -168,19 +174,37 @@ class RequiredDocumentTypeResponse(RequiredDocumentTypeCreate):
     created_at: datetime
 
 
+# Claim Import Schema (P7 Task 3)
+class ClaimImportCreate(BaseModel):
+    claim_ref: str = Field(..., min_length=3, max_length=64)
+    policy_no: str = Field(..., min_length=3, max_length=64)
+    incident_date: date
+    claim_category: str = Field(..., min_length=1, max_length=64)
+    requested_amount: Decimal = Field(..., gt=0)
+    description: str = Field(..., min_length=1)
+    channel: ClaimChannel = Field(default=ClaimChannel.CUSTOMER)
+    source_system: str | None = Field(default=None, max_length=64)
+    external_ref: str | None = Field(default=None, max_length=128)
+    historical_status: ClaimStatus | None = Field(default=None)
+
+
 # Master Data Import Schemas
 class MasterDataBatchImport(BaseModel):
     customers: list[CustomerCreate] = Field(default_factory=list)
     policies: list[PolicyCreate] = Field(default_factory=list)
     required_documents: list[RequiredDocumentTypeCreate] = Field(default_factory=list)
+    claims: list[ClaimImportCreate] = Field(default_factory=list)
 
 
 class ImportSummary(BaseModel):
     dry_run: bool
     source_format: str
-    customers_processed: int
-    policies_processed: int
-    coverages_processed: int
-    items_created: int
-    items_updated: int
+    customers_processed: int = 0
+    policies_processed: int = 0
+    coverages_processed: int = 0
+    claims_processed: int = 0
+    items_created: int = 0
+    items_updated: int = 0
+    rejects_created: int = 0
+    batch_id: uuid.UUID | None = None
     errors: list[str] = Field(default_factory=list)

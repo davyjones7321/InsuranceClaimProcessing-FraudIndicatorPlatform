@@ -65,6 +65,7 @@ class Settings(BaseSettings):
         "image/png",
     ]
     UPLOAD_STORAGE_PATH: str = "storage/documents"
+    ANTIVIRUS_ENABLED: bool = False
 
     # Ruleset
     ACTIVE_RULESET_VERSION: str = "v1"

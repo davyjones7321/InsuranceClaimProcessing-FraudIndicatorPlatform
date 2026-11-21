@@ -37,6 +37,8 @@ dev = [
     "mypy>=1.11.2",
     "types-pyyaml>=6.0.12.20240917",
     "import-linter>=2.0",
+    "pip-audit>=2.7.3",
+    "bandit>=1.7.9",
 ]
 
 [tool.setuptools.packages.find]

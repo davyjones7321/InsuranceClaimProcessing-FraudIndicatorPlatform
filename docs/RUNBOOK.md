@@ -194,12 +194,35 @@ Run audit chain verification nightly (incremental) and weekly (full):
 python scripts/verify_audit.py --chain all
 ```
 
-### 8.2 Audit Breach Response Procedure
+### 8.2 Audit Breach Response Procedure (Handling a Chain Break)
 If verification reports `❌ FAIL: Chain broken at seq N`:
-1. **Do not modify or delete rows:** Never edit `audit_log` or `audit_chain_heads`.
-2. **Isolate incident:** Record the affected `chain_key`, `first_broken_seq`, and timestamps in incident management.
-3. **Forensic investigation:** Compare database replication logs, transaction logs, and external anchor hashes to identify altered fields.
-4. **Resumption:** Resuming audit writes on a broken chain requires administrative review and a signed `CHAIN_BREAK_ACKNOWLEDGED` event.
+1. **Freeze & Preserve:** Never attempt to edit, patch, or delete records in `audit_log` or `audit_chain_heads`. The database role `app_rw` has `UPDATE` and `DELETE` revoked to prevent manual tampering.
+2. **Isolate Incident Scope:**
+   - Record the affected `chain_key`, `first_broken_seq`, and timestamps in incident management.
+   - Run verification across all chains to determine whether the issue is isolated or systemic:
+     ```bash
+     python scripts/verify_audit.py --chain all
+     ```
+3. **Forensic Reconciliation with External Anchors:**
+   - Retrieve the latest un-tampered external anchor manifest from compliance Object Lock storage.
+   - Compare the entry payload hash at `first_broken_seq` against the anchor record.
+   - Inspect database WAL replication logs, RDS audit logs, and access logs around the timestamp of the modified entry to determine the exact origin of modification.
+4. **Resumption & Acknowledgment:**
+   - If investigation confirms the break is non-malicious (e.g., storage corruption):
+     A designated security officer records a signed administrative intervention in the `verification_runs` table.
+   - A new epoch is started or the chain head is reset under dual-authorization with a signed `CHAIN_BREAK_ACKNOWLEDGED` event logged.
+
+### 8.3 Financial Ledger Reconciliation Mismatch Procedure
+Scheduled job `reconciliation` verifies that `consumed_amount` on each `Coverage` equals $\sum \text{CONSUME} - \sum \text{REVERSE}$ from `coverage_ledger`.
+If a mismatch is detected:
+1. The script creates an immutable incident record in `reconciliation_incidents` (or logs an incident) and **never auto-fixes** or mutates amounts automatically.
+2. Trigger immediate review:
+   ```bash
+   python scripts/reconcile_ledger.py
+   ```
+3. Query the affected `coverage_id`:
+   Inspect all related ledger entries and claim transactions to isolate the failing transaction.
+4. A financial manager and system administrator must review and post a compensatory ledger entry (`REVERSE` or adjustment) to restore balance.
 
 ---
 
@@ -213,3 +236,17 @@ If verification reports `❌ FAIL: Chain broken at seq N`:
 | Optimistic lock `409` | Concurrent update to claim status | Re-fetch claim state and re-submit if appropriate. |
 | Login rate limit `429` | Brute force attempt or shared IP | Check IP access logs; account lockout resets after cooldown. |
 | Audit chain verification fails | Data corruption or unauthorized DB update | Follow Section 8.2 incident response immediately. |
+| Scheduler job missed alert | Cron runner process killed or database offline | Inspect `job_runs` table; check scheduler process logs. |
+
+---
+
+## 10. Client Responsibilities (Not Built by Platform)
+
+The following legal, regulatory, and organizational obligations must be established by the client organization prior to production go-live:
+
+1. **Lawful Basis and Consent Wording:** The client's legal counsel must formulate and publish the statutory privacy notice, lawful basis declarations under applicable privacy regulations (such as DPDP Act), and specific customer consent phrasing for sensitive medical/identity records.
+2. **Formal Retention Schedule:** While the platform provides report-only evaluation (`scripts/retention_report.py`) against Decision D10 placeholder periods, the final retention policy must be formally ratified by the client's compliance committee.
+3. **Erasure Procedure:** In accordance with Decision D10, automated erasure is intentionally not implemented. The client must institute a manual two-approver erasure procedure requiring written dual-custody authorization and an immutable audit log entry.
+4. **Data Breach Notification Policy:** The client must define regulatory reporting procedures and timelines (e.g., CERT-In 6-hour reporting window) in the event of confirmed data exfiltration or tampering.
+5. **Data Protection Impact Assessment (DPIA):** The client must complete a DPIA evaluating customer privacy risks for health and motor claim processing.
+6. **Independent Penetration Testing:** The platform code has undergone internal SAST, dependency auditing, and container scanning. The client is responsible for commissioning a certified, independent third-party penetration test against the deployed staging environment prior to commercial launch.

@@ -169,6 +169,7 @@ ACTION_SCHEMAS: dict[str, frozenset[str]] = {
             "size_bytes",
             "mime_type",
             "file_name_sha256",
+            "antivirus_status",
         }
     ),
     "UPLOAD_DOC": frozenset({"doc_code", "file_name", "file_name_sha256", "sha256"}),
@@ -370,7 +371,19 @@ ACTION_SCHEMAS: dict[str, frozenset[str]] = {
     # System & Operations
     "BATCH_IMPORT": frozenset({"batch_type", "record_count", "dry_run", "summary_sha256"}),
     "IMPORT_MASTER_DATA": frozenset(
-        {"source_format", "entity_type", "items_created", "items_updated", "errors_count"}
+        {
+            "source_format",
+            "entity_type",
+            "items_created",
+            "items_updated",
+            "errors_count",
+            "batch_id",
+            "customers_processed",
+            "policies_processed",
+            "coverages_processed",
+            "claims_processed",
+            "rejects_created",
+        }
     ),
     "RULESET_ACTIVATED": frozenset({"version", "content_sha256"}),
     "SEED_DATABASE": frozenset(
