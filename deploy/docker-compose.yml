@@ -18,6 +18,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # Separate release migration step (Decision D3 / P8 Task 2)
+  migration:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: claim_platform_migration
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres_dev_password@db:5432/insurance_claims
+      MIGRATOR_DATABASE_URL: postgresql+psycopg://postgres:postgres_dev_password@db:5432/insurance_claims
+      SECRET_KEY: local-dev-secret-key-32-chars-minimum-length
+      AUDIT_HMAC_KEY: local-dev-audit-hmac-key-32-chars-minimum
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   app:
     build:
       context: ..
@@ -27,6 +44,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
     environment:
       ENV: development
       DEBUG: "false"
@@ -34,11 +53,25 @@ services:
       MIGRATOR_DATABASE_URL: postgresql+psycopg://postgres:postgres_dev_password@db:5432/insurance_claims
       SECRET_KEY: local-dev-secret-key-32-chars-minimum-length
       AUDIT_HMAC_KEY: local-dev-audit-hmac-key-32-chars-minimum
-    ports:
-      - "8000:8000"
     volumes:
       - app_storage:/app/storage/documents
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: claim_platform_caddy
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   pgdata:
   app_storage:
+  caddy_data:
+  caddy_config:

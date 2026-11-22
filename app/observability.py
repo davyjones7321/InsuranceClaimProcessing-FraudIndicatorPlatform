@@ -75,3 +75,39 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
 
 logger = setup_logging()
+
+
+class MetricsCollector:
+    """In-memory operational metrics accumulator."""
+
+    def __init__(self) -> None:
+        import time
+
+        self.request_count: int = 0
+        self.error_5xx_count: int = 0
+        self.total_latency_ms: float = 0.0
+        self.start_time: float = time.time()
+
+    def record_request(self, duration_ms: float, status_code: int) -> None:
+        self.request_count += 1
+        self.total_latency_ms += duration_ms
+        if status_code >= 500:
+            self.error_5xx_count += 1
+
+    def get_summary(self) -> dict[str, Any]:
+        import time
+
+        uptime_s = round(time.time() - self.start_time, 2)
+        avg_latency = round(self.total_latency_ms / max(1, self.request_count), 2)
+        rate = round(self.request_count / max(1.0, uptime_s), 2)
+        return {
+            "uptime_seconds": uptime_s,
+            "total_requests": self.request_count,
+            "requests_per_second": rate,
+            "average_latency_ms": avg_latency,
+            "error_5xx_count": self.error_5xx_count,
+            "error_5xx_rate": round(self.error_5xx_count / max(1, self.request_count), 4),
+        }
+
+
+metrics_collector = MetricsCollector()

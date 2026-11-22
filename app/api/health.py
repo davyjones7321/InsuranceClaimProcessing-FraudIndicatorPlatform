@@ -9,12 +9,15 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import AuditChainHead, Claim
 from app.db.session import get_db
+from app.observability import metrics_collector
 from app.rules.loader import (
     ACTIVE_RULESET,
     ACTIVE_RULESET_SHA256,
     DEFAULT_RULESET_PATH,
     load_ruleset,
 )
+
+TARGET_ALEMBIC_HEAD = "0008_operations_job_runs_and_retention"
 
 router = APIRouter(tags=["Health"])
 
@@ -63,9 +66,23 @@ def readyz(db: Session = Depends(get_db)) -> dict[str, Any]:
         res = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
         if res is not None:
             alembic_version = str(res)
+            if settings.ENV in ("staging", "production") and alembic_version != TARGET_ALEMBIC_HEAD:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"Database migration version '{alembic_version}' is not at head '{TARGET_ALEMBIC_HEAD}'",
+                )
+    except HTTPException:
+        raise
     except Exception:
         # If alembic_version table is not present (e.g. fresh in-memory SQLite without migrations), verify tables exist
         alembic_version = "not_tracked"
+
+    # 4. HMAC key present and valid check (Phase P8 Task 3)
+    if not settings.AUDIT_HMAC_KEY or len(settings.AUDIT_HMAC_KEY) < 32:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AUDIT_HMAC_KEY is missing or too short (minimum 32 characters required)",
+        )
 
     return {
         "status": "ready",
@@ -75,12 +92,13 @@ def readyz(db: Session = Depends(get_db)) -> dict[str, Any]:
         "ruleset_version": settings.ACTIVE_RULESET_VERSION,
         "ruleset_sha256": ACTIVE_RULESET_SHA256,
         "engine_version": settings.ENGINE_VERSION,
+        "hmac_key_present": True,
     }
 
 
 @router.get("/metrics", summary="Basic operational metrics")
 def metrics(db: Session = Depends(get_db)) -> dict[str, Any]:
-    """Basic operational metrics for platform observability."""
+    """Operational metrics for platform observability including rate, latency, and errors."""
     total_claims = db.scalar(select(func.count(Claim.id))) or 0
 
     # Claims grouped by status
@@ -94,7 +112,7 @@ def metrics(db: Session = Depends(get_db)) -> dict[str, Any]:
     # Audit chains count
     chains_count = db.scalar(select(func.count(AuditChainHead.chain_key))) or 0
 
-    return {
+    metrics_data = {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "env": settings.ENV,
@@ -107,3 +125,5 @@ def metrics(db: Session = Depends(get_db)) -> dict[str, Any]:
         "claims_by_status": claims_by_status,
         "audit_chains_count": chains_count,
     }
+    metrics_data.update(metrics_collector.get_summary())
+    return metrics_data

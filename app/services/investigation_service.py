@@ -176,6 +176,7 @@ class InvestigationService:
             created_at=utc_now(),
         )
         self.db.add(finding)
+        investigation.findings.append(finding)
 
         write_audit_log(
             db=self.db,

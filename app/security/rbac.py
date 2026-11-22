@@ -170,3 +170,13 @@ def check_risk_access(user: User, claim: Claim) -> None:
         raise PermissionDeniedError(
             f"Role '{user.role.value}' is not authorized to view risk evaluations"
         )
+
+
+def get_customer_safe_status(status: Any) -> str:
+    """Map internal sensitive statuses (UNDER_INVESTIGATION, ESCALATED) to customer-safe label per D6/D7."""
+    from app.domain.enums import ClaimStatus
+
+    val = status.value if hasattr(status, "value") else str(status)
+    if val in (ClaimStatus.UNDER_INVESTIGATION.value, ClaimStatus.ESCALATED.value):
+        return "UNDER_REVIEW"
+    return val

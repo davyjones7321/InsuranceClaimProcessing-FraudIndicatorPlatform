@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
@@ -21,18 +21,44 @@ from app.api.master_data_import import router as master_data_import_router
 from app.api.policies import router as policies_router
 from app.api.required_documents import router as required_documents_router
 from app.config import settings
-from app.observability import logger
+from app.observability import logger, metrics_collector
 from app.security.csrf import validate_csrf_token
+from app.web.routes import router as web_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup and shutdown lifecycle events."""
-    # Validate startup configuration
-    if settings.ENV == "production" and settings.DEBUG:
-        raise RuntimeError("DEBUG must not be True in production environment")
+    # 1. Validate production configuration (Phase P8 Task 4)
+    if settings.ENV == "production":
+        if settings.DEBUG:
+            raise RuntimeError("DEBUG must not be True in production environment")
+        if len(settings.SECRET_KEY) < 32 or "dev-" in settings.SECRET_KEY:
+            raise RuntimeError(
+                "Production SECRET_KEY must be a strong secret of at least 32 characters"
+            )
+        if len(settings.AUDIT_HMAC_KEY) < 32 or "dev-" in settings.AUDIT_HMAC_KEY:
+            raise RuntimeError(
+                "Production AUDIT_HMAC_KEY must be a strong secret of at least 32 characters"
+            )
 
-    # Task 10: Refuse to start if configured business timezone differs from recorded timezone
+    # 2. Validate ruleset hash and schema
+    try:
+        from app.rules.loader import (
+            ACTIVE_RULESET_SHA256,
+            DEFAULT_RULESET_PATH,
+            load_ruleset,
+        )
+
+        _, disk_sha256 = load_ruleset(DEFAULT_RULESET_PATH)
+        if disk_sha256 != ACTIVE_RULESET_SHA256:
+            raise RuntimeError(
+                f"Active ruleset SHA-256 on disk ('{disk_sha256}') does not match registered hash ('{ACTIVE_RULESET_SHA256}')"
+            )
+    except Exception as exc:
+        raise RuntimeError(f"Ruleset boot validation failed: {exc}") from exc
+
+    # 3. Refuse to start if configured business timezone differs from recorded timezone in DB
     try:
         from sqlalchemy import select
 
@@ -96,6 +122,7 @@ async def request_logging_middleware(request: Request, call_next: Callable[..., 
         f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms}ms)",
         extra={"request_id": request_id, "extra_fields": extra_record},
     )
+    metrics_collector.record_request(duration_ms=duration_ms, status_code=response.status_code)
     return response
 
 
@@ -106,8 +133,10 @@ async def csrf_middleware(request: Request, call_next: Callable[..., Any]) -> Re
         path = request.url.path
         if (
             not path.startswith("/api/auth/login")
+            and not path.startswith("/ui")
             and not path.startswith("/health")
             and not path.startswith("/ready")
+            and not path.startswith("/metrics")
         ):
             session_cookie = request.cookies.get(settings.SESSION_COOKIE_NAME)
             if session_cookie:
@@ -131,7 +160,7 @@ async def security_headers_middleware(request: Request, call_next: Callable[...,
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none';"
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'none';"
     )
     if settings.ENV in ("staging", "production"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -150,3 +179,12 @@ app.include_router(claims_router)
 app.include_router(incident_groups_router)
 app.include_router(investigations_router)
 app.include_router(analytics_router)
+
+# Register Web UI router
+app.include_router(web_router)
+
+
+@app.get("/", include_in_schema=False)
+def root_redirect() -> Response:
+    """Redirect root path to web claims UI."""
+    return RedirectResponse(url="/ui/claims", status_code=303)

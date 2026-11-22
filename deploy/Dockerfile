@@ -1,5 +1,5 @@
-# Multi-stage Dockerfile for production claim platform
-FROM python:3.12-slim AS builder
+# Multi-stage Dockerfile for production claim platform (Decision D3)
+FROM python:3.12-slim@sha256:45ba33732faae9a5f45ad0cfbb320f7823e5904fc72ea0a497b5e43da4692751 AS builder
 
 WORKDIR /build
 
@@ -13,11 +13,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 # Final runtime image
-FROM python:3.12-slim AS runner
+FROM python:3.12-slim@sha256:45ba33732faae9a5f45ad0cfbb320f7823e5904fc72ea0a497b5e43da4692751 AS runner
 
 WORKDIR /app
 
-# Create non-root user
+# Create unprivileged non-root user and group
 RUN groupadd -r appgroup && useradd -r -g appgroup -s /sbin/nologin appuser
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,6 +29,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY app/ ./app/
+COPY templates/ ./templates/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY deploy/ ./deploy/
@@ -42,4 +43,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
-CMD ["gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000", "--access-logfile", "-", "--error-logfile", "-"]
+CMD ["gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000", "--timeout", "60", "--limit-request-line", "8190", "--limit-request-field_size", "8190", "--access-logfile", "-", "--error-logfile", "-"]

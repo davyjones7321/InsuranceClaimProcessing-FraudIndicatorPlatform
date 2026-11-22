@@ -7,8 +7,10 @@ from app.security.rbac import RoleChecker, get_current_user
 
 # Allowlist of public endpoints that do not require authenticated RBAC
 PUBLIC_ALLOWED_ROUTES: set[tuple[str, str]] = {
+    ("/", "GET"),
     ("/healthz", "GET"),
     ("/readyz", "GET"),
+    ("/metrics", "GET"),
     ("/api/auth/login", "POST"),
     ("/docs", "GET"),
     ("/openapi.json", "GET"),

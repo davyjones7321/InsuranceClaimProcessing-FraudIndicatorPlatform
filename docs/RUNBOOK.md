@@ -240,13 +240,79 @@ If a mismatch is detected:
 
 ---
 
-## 10. Client Responsibilities (Not Built by Platform)
+## 11. Observability Metrics & Alert Specifications (Decision D3)
 
-The following legal, regulatory, and organizational obligations must be established by the client organization prior to production go-live:
+The platform exposes metrics via `/metrics` and health endpoints `/healthz` and `/readyz`. The monitoring stack evaluates the following alert rules.
 
-1. **Lawful Basis and Consent Wording:** The client's legal counsel must formulate and publish the statutory privacy notice, lawful basis declarations under applicable privacy regulations (such as DPDP Act), and specific customer consent phrasing for sensitive medical/identity records.
-2. **Formal Retention Schedule:** While the platform provides report-only evaluation (`scripts/retention_report.py`) against Decision D10 placeholder periods, the final retention policy must be formally ratified by the client's compliance committee.
-3. **Erasure Procedure:** In accordance with Decision D10, automated erasure is intentionally not implemented. The client must institute a manual two-approver erasure procedure requiring written dual-custody authorization and an immutable audit log entry.
-4. **Data Breach Notification Policy:** The client must define regulatory reporting procedures and timelines (e.g., CERT-In 6-hour reporting window) in the event of confirmed data exfiltration or tampering.
-5. **Data Protection Impact Assessment (DPIA):** The client must complete a DPIA evaluating customer privacy risks for health and motor claim processing.
-6. **Independent Penetration Testing:** The platform code has undergone internal SAST, dependency auditing, and container scanning. The client is responsible for commissioning a certified, independent third-party penetration test against the deployed staging environment prior to commercial launch.
+### 11.1 Prometheus Alert Definitions
+
+```yaml
+groups:
+  - name: claim_platform_alerts
+    rules:
+      - alert: High5xxRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: HTTP 5xx error rate exceeds 1 percent
+          description: Service returning 5xx responses for more than 2 minutes. Inspect structured logs by request_id.
+
+      - alert: DatabaseUnreachable
+        expr: probe_success{instance="readyz"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Application database readiness check failing
+          description: The /readyz endpoint reports database connection failure. Verify PostgreSQL availability.
+
+      - alert: AuditChainIntegrityFailure
+        expr: audit_verification_failures_total > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Cryptographic HMAC-SHA256 audit chain broken
+          description: Audit verification job detected sequence corruption or hash mismatch. Initiate freeze procedure.
+
+      - alert: MissedSchedulerJob
+        expr: scheduler_jobs_missed_total > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scheduled platform job missed execution window
+          description: A required operations job did not run within its schedule window. Inspect job_runs table.
+
+      - alert: AccessLogFailure
+        expr: access_log_write_errors_total > 0
+        for: 1m
+        labels:
+          severity: high
+        annotations:
+          summary: Access log emission or disk flush failure
+          description: Security access logging failed to persist request logs. Verify disk capacity and syslog routes.
+
+      - alert: ReconciliationMismatch
+        expr: financial_reconciliation_mismatches_total > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Coverage ledger and consumed amount mismatch detected
+          description: Consumed coverage amounts differ from the sum of ledger entries. Review reconciliation incidents.
+```
+
+### 11.2 Alert Severity and Escalation Actions
+
+| Alert Name | Severity | Pager / Channel | Immediate Action |
+|---|---|---|---|
+| `High5xxRate` | Critical | On-call Pager | Check container logs, pool exhaustion, unhandled exceptions |
+| `DatabaseUnreachable` | Critical | On-call Pager | Check PostgreSQL container health and connection limits |
+| `AuditChainIntegrityFailure` | Critical | Security Lead | Execute Section 8.2 incident response procedure immediately |
+| `MissedSchedulerJob` | Warning | Operations Slack | Inspect runner process and restart scheduler daemon |
+| `AccessLogFailure` | High | Security Operations | Verify filesystem permissions and disk volume space |
+| `ReconciliationMismatch` | Critical | Financial Ops | Execute Section 8.3 financial ledger review procedure |
+
