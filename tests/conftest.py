@@ -74,8 +74,18 @@ def clean_db() -> Generator[None, None, None]:
             tables = [t.name for t in Base.metadata.sorted_tables]
             if tables:
                 table_list = ", ".join(f'"{t}"' for t in tables)
-                conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
-                conn.commit()
+                try:
+                    conn.execute(text("SET session_replication_role = 'replica';"))
+                    conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
+                    conn.execute(text("SET session_replication_role = 'origin';"))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    try:
+                        conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
     else:
         Base.metadata.drop_all(bind=test_engine)
 
