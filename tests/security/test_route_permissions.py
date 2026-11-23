@@ -10,7 +10,6 @@ PUBLIC_ALLOWED_ROUTES: set[tuple[str, str]] = {
     ("/", "GET"),
     ("/healthz", "GET"),
     ("/readyz", "GET"),
-    ("/metrics", "GET"),
     ("/api/auth/login", "POST"),
     ("/docs", "GET"),
     ("/openapi.json", "GET"),

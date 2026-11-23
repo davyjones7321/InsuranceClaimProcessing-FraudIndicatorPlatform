@@ -5,6 +5,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.config import settings
+from app.db.models import User
+from app.domain.enums import UserRole
+from app.security.session import create_session
 from app.observability import mask_pii
 from app.rules.loader import ACTIVE_RULESET_SHA256
 
@@ -29,8 +32,12 @@ def test_readyz_readiness_probe(client: TestClient) -> None:
     assert data["engine_version"] == settings.ENGINE_VERSION
 
 
-def test_metrics_endpoint(client: TestClient) -> None:
-    resp = client.get("/metrics")
+def test_metrics_endpoint(
+    client: TestClient, db_session, sample_admin: User
+) -> None:
+    session_id = create_session(db_session, sample_admin)
+    db_session.commit()
+    resp = client.get("/metrics", headers={"Authorization": f"Bearer {session_id}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["app"] == settings.APP_NAME
@@ -39,6 +46,17 @@ def test_metrics_endpoint(client: TestClient) -> None:
     assert "audit_chains_count" in data
     assert data["validation_rules_count"] >= 12
     assert data["risk_indicators_count"] >= 9
+
+
+def test_metrics_requires_authorized_role(
+    client: TestClient, db_session, sample_customer_user: User
+) -> None:
+    assert client.get("/metrics").status_code == 401
+
+    session_id = create_session(db_session, sample_customer_user)
+    db_session.commit()
+    response = client.get("/metrics", headers={"Authorization": f"Bearer {session_id}"})
+    assert response.status_code == 403
 
 
 def test_request_id_middleware_generates_and_propagates(client: TestClient) -> None:

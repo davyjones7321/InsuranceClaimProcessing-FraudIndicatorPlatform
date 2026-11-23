@@ -10,6 +10,8 @@ from app.config import settings
 from app.db.models import AuditChainHead, Claim
 from app.db.session import get_db
 from app.observability import metrics_collector
+from app.domain.enums import UserRole
+from app.security.rbac import require_roles
 from app.rules.loader import (
     ACTIVE_RULESET,
     ACTIVE_RULESET_SHA256,
@@ -96,7 +98,11 @@ def readyz(db: Session = Depends(get_db)) -> dict[str, Any]:
     }
 
 
-@router.get("/metrics", summary="Basic operational metrics")
+@router.get(
+    "/metrics",
+    summary="Basic operational metrics",
+    dependencies=[require_roles(UserRole.ADMIN, UserRole.MANAGER)],
+)
 def metrics(db: Session = Depends(get_db)) -> dict[str, Any]:
     """Operational metrics for platform observability including rate, latency, and errors."""
     total_claims = db.scalar(select(func.count(Claim.id))) or 0
