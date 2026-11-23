@@ -98,10 +98,7 @@ def test_readyz_requires_current_alembic_head(
     """Staging readiness accepts the current schema head and rejects older revisions."""
     monkeypatch.setattr(settings, "ENV", "staging")
     db_session.execute(
-        text(
-            "CREATE TABLE IF NOT EXISTS alembic_version "
-            "(version_num VARCHAR(32) NOT NULL)"
-        )
+        text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)")
     )
     db_session.execute(text("DELETE FROM alembic_version"))
     db_session.execute(
