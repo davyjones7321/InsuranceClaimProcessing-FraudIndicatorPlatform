@@ -59,7 +59,7 @@ jobs:
     needs: build
     environment:
       name: staging
-      url: https://staging.claimflow.internal
+      url: ${{ vars.STAGING_URL || 'https://staging.claimflow.internal' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -67,39 +67,81 @@ jobs:
       - name: Record previous stable image tag
         id: prev_tag
         run: |
-          PREV_TAG=$(cat deploy/staging_current_tag.txt 2>/dev/null || echo "latest")
+          PREV_TAG=$(cat deploy/staging_current_tag.txt 2>/dev/null || echo "")
           echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
       - name: Execute Database Migration (Separate Release Step)
+        env:
+          MIGRATOR_DATABASE_URL: ${{ secrets.STAGING_MIGRATOR_DATABASE_URL }}
+          IMAGE_NAME: ${{ needs.build.outputs.image_name }}
         run: |
-          echo "Running database migrations for staging as migrator..."
-          # docker run --rm \
-          #   -e DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.STAGING_MIGRATOR_DB_PASSWORD }}@staging-db:5432/insurance_claims \
-          #   -e MIGRATOR_DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.STAGING_MIGRATOR_DB_PASSWORD }}@staging-db:5432/insurance_claims \
-          #   ${{ needs.build.outputs.image_name }} alembic upgrade head
+          if [ -z "$MIGRATOR_DATABASE_URL" ]; then
+            echo "::error::Target infrastructure unavailable: STAGING_MIGRATOR_DATABASE_URL secret is not configured for migrator execution."
+            exit 1
+          fi
+          echo "Executing staging database migrations as migrator..."
+          docker run --rm \
+            -e DATABASE_URL="$MIGRATOR_DATABASE_URL" \
+            -e MIGRATOR_DATABASE_URL="$MIGRATOR_DATABASE_URL" \
+            "$IMAGE_NAME" alembic upgrade head
 
       - name: Deploy container to Staging
+        env:
+          APP_RW_DATABASE_URL: ${{ secrets.STAGING_APP_RW_DATABASE_URL }}
+          DEPLOY_HOST: ${{ secrets.STAGING_DEPLOY_HOST }}
+          IMAGE_NAME: ${{ needs.build.outputs.image_name }}
         run: |
-          echo "Deploying image ${{ needs.build.outputs.image_name }} to staging as app_rw..."
-          # docker run -d \
-          #   -e DATABASE_URL=postgresql+psycopg://app_rw:${{ secrets.STAGING_APP_RW_DB_PASSWORD }}@staging-db:5432/insurance_claims \
-          #   ...
+          if [ -z "$APP_RW_DATABASE_URL" ]; then
+            echo "::error::Target infrastructure unavailable: STAGING_APP_RW_DATABASE_URL secret is not configured for app_rw container."
+            exit 1
+          fi
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "::error::Target infrastructure unavailable: STAGING_DEPLOY_HOST secret is not configured to deploy staging container."
+            exit 1
+          fi
+          echo "Deploying image $IMAGE_NAME to staging as app_rw..."
+          ssh -o StrictHostKeyChecking=no "$DEPLOY_HOST" "docker pull $IMAGE_NAME && docker stop claim_platform_app 2>/dev/null || true && docker rm claim_platform_app 2>/dev/null || true && docker run -d --name claim_platform_app -p 8000:8000 -e ENV=staging -e DATABASE_URL='$APP_RW_DATABASE_URL' $IMAGE_NAME"
+          echo "${{ needs.build.outputs.image_tag }}" > deploy/staging_current_tag.txt
 
       - name: Verify Readiness Probe (/readyz)
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL || secrets.STAGING_URL || 'https://staging.claimflow.internal' }}
         run: |
-          echo "Verifying staging readiness..."
-          # curl -f --retry 10 --retry-delay 3 https://staging.claimflow.internal/readyz
+          if [ -z "$STAGING_URL" ]; then
+            echo "::error::Target infrastructure unavailable: STAGING_URL is not configured."
+            exit 1
+          fi
+          echo "Verifying staging readiness at $STAGING_URL/readyz..."
+          curl -f --retry 10 --retry-delay 3 --max-time 15 "$STAGING_URL/readyz"
 
       - name: Staging Smoke Test (Register Claim as app_rw)
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL || secrets.STAGING_URL || 'https://staging.claimflow.internal' }}
         run: |
-          echo "Executing staging smoke test registering claim as app_rw..."
-          # python scripts/smoke_test_staging.py --url https://staging.claimflow.internal
+          if [ -z "$STAGING_URL" ]; then
+            echo "::error::Target infrastructure unavailable: STAGING_URL is not configured for smoke test."
+            exit 1
+          fi
+          echo "Executing staging smoke test registering claim as app_rw against $STAGING_URL..."
+          python scripts/smoke_test_staging.py --url "$STAGING_URL"
 
       - name: Rollback on Failure
         if: failure()
+        env:
+          DEPLOY_HOST: ${{ secrets.STAGING_DEPLOY_HOST }}
+          PREV_TAG: ${{ steps.prev_tag.outputs.previous_tag }}
+          IMAGE_NAME: ${{ needs.build.outputs.image_name }}
         run: |
-          echo "Staging deployment failed. Rolling back to previous stable tag: ${{ steps.prev_tag.outputs.previous_tag }}"
-          # Deploy ${{ steps.prev_tag.outputs.previous_tag }}
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "::error::Target infrastructure unavailable: STAGING_DEPLOY_HOST is not configured to execute rollback."
+            exit 1
+          fi
+          if [ -z "$PREV_TAG" ]; then
+            echo "::error::Rollback aborted: No previous image tag recorded in deploy/staging_current_tag.txt."
+            exit 1
+          fi
+          echo "Staging deployment failed. Rolling back to previous stable tag: $PREV_TAG"
+          ssh -o StrictHostKeyChecking=no "$DEPLOY_HOST" "docker stop claim_platform_app && docker run -d --name claim_platform_app -p 8000:8000 $IMAGE_NAME:$PREV_TAG"
 
   deploy-production:
     name: Deploy to Production (Manual Approval Gate)
@@ -107,7 +149,7 @@ jobs:
     needs: deploy-staging
     environment:
       name: production
-      url: https://claims.insurance.example
+      url: ${{ vars.PROD_URL || 'https://claims.insurance.example' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -115,31 +157,67 @@ jobs:
       - name: Record previous production image tag
         id: prev_prod_tag
         run: |
-          PREV_PROD=$(cat deploy/production_current_tag.txt 2>/dev/null || echo "latest")
+          PREV_PROD=$(cat deploy/production_current_tag.txt 2>/dev/null || echo "")
           echo "previous_prod_tag=$PREV_PROD" >> $GITHUB_OUTPUT
 
       - name: Execute Database Migration (Separate Release Step)
+        env:
+          MIGRATOR_DATABASE_URL: ${{ secrets.PROD_MIGRATOR_DATABASE_URL }}
+          IMAGE_NAME: ${{ needs.build.outputs.image_name }}
         run: |
+          if [ -z "$MIGRATOR_DATABASE_URL" ]; then
+            echo "::error::Target infrastructure unavailable: PROD_MIGRATOR_DATABASE_URL secret is not configured for migrator execution."
+            exit 1
+          fi
           echo "Running production database migrations as migrator..."
-          # docker run --rm \
-          #   -e DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.PROD_MIGRATOR_DB_PASSWORD }}@prod-db:5432/insurance_claims \
-          #   -e MIGRATOR_DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.PROD_MIGRATOR_DB_PASSWORD }}@prod-db:5432/insurance_claims \
-          #   ${{ needs.build.outputs.image_name }} alembic upgrade head
+          docker run --rm \
+            -e DATABASE_URL="$MIGRATOR_DATABASE_URL" \
+            -e MIGRATOR_DATABASE_URL="$MIGRATOR_DATABASE_URL" \
+            "$IMAGE_NAME" alembic upgrade head
 
       - name: Deploy container to Production
+        env:
+          APP_RW_DATABASE_URL: ${{ secrets.PROD_APP_RW_DATABASE_URL }}
+          DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
+          IMAGE_NAME: ${{ needs.build.outputs.image_name }}
         run: |
-          echo "Deploying verified image ${{ needs.build.outputs.image_name }} to production as app_rw..."
-          # docker run -d \
-          #   -e DATABASE_URL=postgresql+psycopg://app_rw:${{ secrets.PROD_APP_RW_DB_PASSWORD }}@prod-db:5432/insurance_claims \
-          #   ...
+          if [ -z "$APP_RW_DATABASE_URL" ]; then
+            echo "::error::Target infrastructure unavailable: PROD_APP_RW_DATABASE_URL secret is not configured for app_rw container."
+            exit 1
+          fi
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "::error::Target infrastructure unavailable: PROD_DEPLOY_HOST secret is not configured to deploy production container."
+            exit 1
+          fi
+          echo "Deploying verified image $IMAGE_NAME to production as app_rw..."
+          ssh -o StrictHostKeyChecking=no "$DEPLOY_HOST" "docker pull $IMAGE_NAME && docker stop claim_platform_app 2>/dev/null || true && docker rm claim_platform_app 2>/dev/null || true && docker run -d --name claim_platform_app -p 8000:8000 -e ENV=production -e DATABASE_URL='$APP_RW_DATABASE_URL' $IMAGE_NAME"
+          echo "${{ needs.build.outputs.image_tag }}" > deploy/production_current_tag.txt
 
       - name: Verify Production Readiness Probe (/readyz)
+        env:
+          PROD_URL: ${{ vars.PROD_URL || secrets.PROD_URL || 'https://claims.insurance.example' }}
         run: |
-          echo "Verifying production readiness..."
-          # curl -f --retry 10 --retry-delay 3 https://claims.insurance.example/readyz
+          if [ -z "$PROD_URL" ]; then
+            echo "::error::Target infrastructure unavailable: PROD_URL is not configured."
+            exit 1
+          fi
+          echo "Verifying production readiness at $PROD_URL/readyz..."
+          curl -f --retry 10 --retry-delay 3 --max-time 15 "$PROD_URL/readyz"
 
       - name: Rollback Production on Failure
         if: failure()
+        env:
+          DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
+          PREV_PROD_TAG: ${{ steps.prev_prod_tag.outputs.previous_prod_tag }}
+          IMAGE_NAME: ${{ needs.build.outputs.image_name }}
         run: |
-          echo "CRITICAL: Production deployment failed. Rolling back to ${{ steps.prev_prod_tag.outputs.previous_prod_tag }}"
-          # Revert container image to previous tag and check /readyz
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "::error::Target infrastructure unavailable: PROD_DEPLOY_HOST is not configured to execute rollback."
+            exit 1
+          fi
+          if [ -z "$PREV_PROD_TAG" ]; then
+            echo "::error::Rollback aborted: No previous production image tag available."
+            exit 1
+          fi
+          echo "CRITICAL: Production deployment failed. Rolling back to $PREV_PROD_TAG"
+          ssh -o StrictHostKeyChecking=no "$DEPLOY_HOST" "docker stop claim_platform_app && docker run -d --name claim_platform_app -p 8000:8000 $IMAGE_NAME:$PREV_PROD_TAG"

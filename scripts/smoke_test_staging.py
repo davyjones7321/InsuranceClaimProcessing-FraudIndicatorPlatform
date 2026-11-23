@@ -28,7 +28,9 @@ def smoke_test_via_api(api_url: str) -> None:
         # 1. Readiness check
         ready_resp = client.get(f"{clean_url}/readyz")
         if ready_resp.status_code != 200:
-            raise RuntimeError(f"Staging readiness probe failed: {ready_resp.status_code} {ready_resp.text}")
+            raise RuntimeError(
+                f"Staging readiness probe failed: {ready_resp.status_code} {ready_resp.text}"
+            )
         print("Readiness probe /readyz OK (200)")
 
         # 2. Login as demo/test customer
@@ -45,7 +47,9 @@ def smoke_test_via_api(api_url: str) -> None:
         # 3. Retrieve customer policies
         pol_resp = client.get(f"{clean_url}/api/policies", headers=headers)
         if pol_resp.status_code != 200 or not pol_resp.json():
-            raise RuntimeError(f"Failed to fetch active policy on staging: {pol_resp.status_code} {pol_resp.text}")
+            raise RuntimeError(
+                f"Failed to fetch active policy on staging: {pol_resp.status_code} {pol_resp.text}"
+            )
         policy = pol_resp.json()[0]
         policy_id = policy["id"]
 
@@ -60,11 +64,15 @@ def smoke_test_via_api(api_url: str) -> None:
         }
         claim_resp = client.post(f"{clean_url}/api/claims", headers=headers, json=payload)
         if claim_resp.status_code != 201:
-            raise RuntimeError(f"Staging claim registration failed: {claim_resp.status_code} {claim_resp.text}")
+            raise RuntimeError(
+                f"Staging claim registration failed: {claim_resp.status_code} {claim_resp.text}"
+            )
 
         claim_data = claim_resp.json()
         assert claim_data["status"] == "REGISTERED", f"Unexpected status: {claim_data['status']}"
-        assert claim_data["claim_ref"].startswith("CLM-"), f"Unexpected ref: {claim_data['claim_ref']}"
+        assert claim_data["claim_ref"].startswith("CLM-"), (
+            f"Unexpected ref: {claim_data['claim_ref']}"
+        )
         print(f"Staging smoke test PASSED: Registered claim {claim_data['claim_ref']} as app_rw")
 
 
@@ -82,9 +90,15 @@ def smoke_test_via_db(database_url: str) -> None:
             print("Notice: No policy found in DB for direct DB smoke test.")
             return
 
-        user = session.execute(
-            select(User).where(User.customer_id == policy.customer_id, User.role == UserRole.CUSTOMER)
-        ).scalars().first()
+        user = (
+            session.execute(
+                select(User).where(
+                    User.customer_id == policy.customer_id, User.role == UserRole.CUSTOMER
+                )
+            )
+            .scalars()
+            .first()
+        )
         if not user:
             print("Notice: No user found for customer in direct DB smoke test.")
             return

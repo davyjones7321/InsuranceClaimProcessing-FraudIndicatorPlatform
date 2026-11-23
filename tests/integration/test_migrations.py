@@ -20,7 +20,7 @@ def test_alembic_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
     engine = create_engine(migration_db_url)
 
     alembic_cfg = Config("alembic.ini")
-    alembic_cfg.set_main_option("sqlalchemy.url", migration_db_url)
+    alembic_cfg.set_main_option("sqlalchemy.url", migration_db_url.replace("%", "%%"))
 
     try:
         # 1. Upgrade to head
@@ -125,7 +125,7 @@ def test_alembic_postgres_app_rw_append_only_enforcement() -> None:
         migrator_engine = create_engine(migrator_url)
 
         alembic_cfg = Config("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url.replace("%", "%%"))
         command.upgrade(alembic_cfg, "head")
 
         # 3. Connect as app_rw
@@ -214,7 +214,7 @@ def test_alembic_postgres_upgrade_downgrade_upgrade() -> None:
         ).render_as_string(hide_password=False)
         migrator_engine = create_engine(migrator_url)
         alembic_cfg = Config("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url.replace("%", "%%"))
 
         # 1. Upgrade to head
         command.upgrade(alembic_cfg, "head")
@@ -243,3 +243,24 @@ def test_alembic_postgres_upgrade_downgrade_upgrade() -> None:
                 else text(f"DROP DATABASE IF EXISTS {test_db_name};")
             )
         admin_engine.dispose()
+
+
+def test_alembic_config_escapes_percent_in_database_url_with_password() -> None:
+    """Alembic config uses ConfigParser interpolation by default. Database URLs containing
+    '%' in passwords must be escaped as '%%' before calling set_main_option(), allowing
+    get_main_option() to retrieve the exact original unescaped URL without ValueError.
+    """
+    raw_url = "postgresql+psycopg://migrator:p%40ss%25word%21@localhost:5432/insurance_claims"
+    alembic_cfg = Config("alembic.ini")
+
+    # 1. Unescaped set_main_option fails due to configparser interpolation syntax validation
+    with pytest.raises(ValueError, match=r"invalid interpolation syntax"):
+        alembic_cfg.set_main_option("sqlalchemy.url", raw_url)
+
+    # 2. Escaping '%' as '%%' passes validation and correctly recovers unescaped URL
+    escaped_url = raw_url.replace("%", "%%")
+    alembic_cfg.set_main_option("sqlalchemy.url", escaped_url)
+    assert alembic_cfg.get_main_option("sqlalchemy.url") == raw_url
+
+    # 3. Offline migration executes successfully with the escaped URL
+    command.upgrade(alembic_cfg, "head", sql=True)

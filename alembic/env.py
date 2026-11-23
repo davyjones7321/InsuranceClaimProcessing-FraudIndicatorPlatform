@@ -21,9 +21,9 @@ if config.config_file_name is not None:
 
 # Set database URL dynamically from app settings if not provided
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option(
-        "sqlalchemy.url", settings.MIGRATOR_DATABASE_URL or settings.DATABASE_URL
-    )
+    raw_url = settings.MIGRATOR_DATABASE_URL or settings.DATABASE_URL
+    if raw_url:
+        config.set_main_option("sqlalchemy.url", raw_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

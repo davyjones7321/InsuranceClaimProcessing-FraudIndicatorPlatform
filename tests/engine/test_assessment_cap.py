@@ -317,15 +317,21 @@ def test_assessment_negative_input_validations() -> None:
 
     # Negative requested amount
     with pytest.raises(ValueError, match="Requested amount cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "requested_amount": Decimal("-1.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "requested_amount": Decimal("-1.00")})
+        )
 
     # Negative assessed loss
     with pytest.raises(ValueError, match="Assessed loss cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "assessed_loss": Decimal("-1.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "assessed_loss": Decimal("-1.00")})
+        )
 
     # Negative remaining limit
     with pytest.raises(ValueError, match="Remaining limit cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "remaining_limit": Decimal("-1.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "remaining_limit": Decimal("-1.00")})
+        )
 
     # Negative deductible
     with pytest.raises(ValueError, match="Deductible cannot be negative"):
@@ -333,15 +339,21 @@ def test_assessment_negative_input_validations() -> None:
 
     # Negative copay
     with pytest.raises(ValueError, match="Copay percent must be between 0 and 100"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "copay_percent": Decimal("-1.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "copay_percent": Decimal("-1.00")})
+        )
 
     # Copay > 100
     with pytest.raises(ValueError, match="Copay percent must be between 0 and 100"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "copay_percent": Decimal("101.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "copay_percent": Decimal("101.00")})
+        )
 
     # Negative depreciation
     with pytest.raises(ValueError, match="Depreciation cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "depreciation": Decimal("-1.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "depreciation": Decimal("-1.00")})
+        )
 
     # Negative sum insured
     with pytest.raises(ValueError, match="Sum insured cannot be negative"):
@@ -349,7 +361,9 @@ def test_assessment_negative_input_validations() -> None:
 
     # Negative value at risk
     with pytest.raises(ValueError, match="Value at risk cannot be negative"):
-        calculate_assessment_cap(AssessmentInput(**{**valid_base, "value_at_risk": Decimal("-1.00")}))
+        calculate_assessment_cap(
+            AssessmentInput(**{**valid_base, "value_at_risk": Decimal("-1.00")})
+        )
 
 
 def test_assessment_component_validations() -> None:

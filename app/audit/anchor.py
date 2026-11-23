@@ -9,14 +9,14 @@ Anchors:
 """
 
 import base64
-from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 import json
 import os
-from typing import Any, cast
 import urllib.parse
 import xml.etree.ElementTree as ET
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import httpx
 from sqlalchemy import func, select
@@ -89,7 +89,7 @@ def _sign_sigv4(
         f"{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
     )
 
-    k_secret = f"AWS4{secret_key}".encode("utf-8")
+    k_secret = f"AWS4{secret_key}".encode()
     k_date = hmac.new(k_secret, date_stamp.encode("utf-8"), hashlib.sha256).digest()
     k_region = hmac.new(k_date, region.encode("utf-8"), hashlib.sha256).digest()
     k_service = hmac.new(k_region, service.encode("utf-8"), hashlib.sha256).digest()

@@ -7,21 +7,17 @@ Enforces:
 4. Verifier retrieves unbroken manifest history from external storage.
 """
 
-from datetime import UTC, datetime, timedelta
-import json
 import os
 import tempfile
-from typing import Any
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 from sqlalchemy.orm import Session
 
 from app.audit.anchor import (
     DEFAULT_ANCHOR_DIR,
     S3AnchorClient,
     create_daily_anchor_manifest,
-    get_latest_anchor_manifest,
 )
 
 
@@ -113,8 +109,14 @@ def test_s3_anchor_client_put_manifest_object_lock_headers() -> None:
         headers = call_args[1]["headers"]
 
         # 1. Target URL matches S3 object key
-        assert target_url == "https://audit-compliance-bucket.s3.ap-south-1.amazonaws.com/manifests/manifest_2026-11-22_a1b2c3d4e5f6.json"
-        assert result_uri == "s3://audit-compliance-bucket/manifests/manifest_2026-11-22_a1b2c3d4e5f6.json"
+        assert (
+            target_url
+            == "https://audit-compliance-bucket.s3.ap-south-1.amazonaws.com/manifests/manifest_2026-11-22_a1b2c3d4e5f6.json"
+        )
+        assert (
+            result_uri
+            == "s3://audit-compliance-bucket/manifests/manifest_2026-11-22_a1b2c3d4e5f6.json"
+        )
 
         # 2. Object Lock Compliance mode headers
         assert headers["x-amz-object-lock-mode"] == "COMPLIANCE"

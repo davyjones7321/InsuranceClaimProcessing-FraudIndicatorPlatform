@@ -479,7 +479,7 @@ def test_staging_smoke_claim_registration_app_rw() -> None:
             username="migrator", password="migrator_secure_pass", database=test_db_name
         ).render_as_string(hide_password=False)
         alembic_cfg = Config("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url.replace("%", "%%"))
         command.upgrade(alembic_cfg, "head")
 
         # 3. Connect as app_rw

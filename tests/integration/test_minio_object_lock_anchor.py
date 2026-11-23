@@ -34,7 +34,9 @@ def test_s3_anchor_client_minio_object_lock() -> None:
     """
     endpoint_url = os.environ.get("MINIO_ENDPOINT_URL") or "http://localhost:9000"
     if not is_minio_available(endpoint_url):
-        pytest.skip("UNVERIFIED: MinIO instance with Object Lock is not reachable in this environment")
+        pytest.skip(
+            "UNVERIFIED: MinIO instance with Object Lock is not reachable in this environment"
+        )
 
     bucket = os.environ.get("MINIO_BUCKET", "audit-anchors-compliance")
     writer_ak = os.environ.get("MINIO_WRITER_AK", "minio_writer")
@@ -67,7 +69,9 @@ def test_s3_anchor_client_minio_object_lock() -> None:
     key = s3_uri.replace(f"s3://{bucket}/", "")
 
     # 2. Attempt overwrite (must fail due to Object Lock)
-    tampered_manifest = dict(manifest_data, root_hash="0000000000000000000000000000000000000000000000000000000000000000")
+    tampered_manifest = dict(
+        manifest_data, root_hash="0000000000000000000000000000000000000000000000000000000000000000"
+    )
     with pytest.raises(Exception, match=r"(ObjectLocked|AccessDenied|403|precondition|prohibited)"):
         client.put_manifest(tampered_manifest)
 
@@ -85,7 +89,9 @@ def test_s3_anchor_client_minio_object_lock() -> None:
     )
     with httpx.Client(timeout=5.0) as http_client:
         del_resp = http_client.delete(del_url, headers=del_headers)
-        assert del_resp.status_code in (403, 400), f"Delete should be rejected, got {del_resp.status_code}"
+        assert del_resp.status_code in (403, 400), (
+            f"Delete should be rejected, got {del_resp.status_code}"
+        )
 
     # 4. Verifier read-only (GET succeeds)
     retrieved = client.get_manifest(f"{bucket}/{key}")

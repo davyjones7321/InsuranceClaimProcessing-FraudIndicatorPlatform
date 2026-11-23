@@ -159,7 +159,6 @@ def p3_fixtures(db_session: Session):
 # =========================================================================
 
 
-
 # =========================================================================
 # 2. Strict Allowlist & Canary Test (Fix F9)
 # =========================================================================
@@ -648,7 +647,7 @@ def test_audit_writer_app_rw_50_concurrent_writers_on_migrated_db():
             username="migrator", password="migrator_secure_pass", database=test_db_name
         ).render_as_string(hide_password=False)
         alembic_cfg = Config("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url.replace("%", "%%"))
         command.upgrade(alembic_cfg, "head")
 
         # 3. Connect as restricted app_rw role
@@ -692,6 +691,157 @@ def test_audit_writer_app_rw_50_concurrent_writers_on_migrated_db():
             assert res.is_valid is True
             assert res.total_events == num_writers
             assert res.first_broken_seq is None
+
+        app_rw_engine.dispose()
+    finally:
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+                if conn.dialect.server_version_info >= (13,)
+                else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+            )
+        admin_engine.dispose()
+
+
+def test_postgres_app_rw_insert_wrong_hmac_flagged_by_verifier() -> None:
+    """Insert a correctly linked audit row with a wrong HMAC directly into audit_log
+    as app_rw on PostgreSQL:
+    1. Demonstrates that PostgreSQL does NOT block the INSERT (DB enforces relational
+       integrity like FK linkage and sequence rules, not HMAC-SHA256).
+    2. Proves that verify_chain flags the cryptographic violation with is_valid=False
+       and identifies the exact corrupted seq.
+    """
+    test_db_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_db_url or "postgresql" not in test_db_url:
+        pytest.skip("PostgreSQL TEST_DATABASE_URL required for app_rw wrong HMAC test")
+
+    parsed_url = make_url(test_db_url)
+    admin_db_url = parsed_url.set(database="postgres").render_as_string(hide_password=False)
+    try:
+        admin_engine = create_engine(admin_db_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        pytest.fail(f"PostgreSQL server unreachable at {admin_db_url}: {exc}")
+
+    test_db_name = "test_audit_app_rw_wrong_hmac"
+    with admin_engine.connect() as conn:
+        conn.execute(
+            text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+            if conn.dialect.server_version_info >= (13,)
+            else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+        )
+        conn.execute(text(f"CREATE DATABASE {test_db_name};"))
+
+    try:
+        # 1. Run deploy/init-db.sql on empty database
+        admin_test_url = parsed_url.set(database=test_db_name).render_as_string(hide_password=False)
+        admin_test_engine = create_engine(admin_test_url)
+        with open("deploy/init-db.sql", encoding="utf-8") as f:
+            init_sql = f.read()
+        with admin_test_engine.connect() as conn:
+            conn.execute(text(init_sql))
+            conn.commit()
+        admin_test_engine.dispose()
+
+        # 2. Run alembic upgrade head as migrator
+        migrator_url = parsed_url.set(
+            username="migrator", password="migrator_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url.replace("%", "%%"))
+        command.upgrade(alembic_cfg, "head")
+
+        # 3. Connect as restricted app_rw role
+        app_rw_url = parsed_url.set(
+            username="app_rw", password="app_rw_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        app_rw_engine = create_engine(app_rw_url)
+        AppRwSession = sessionmaker(bind=app_rw_engine, autocommit=False, autoflush=False)
+
+        claim_id = uuid.uuid4()
+        chain_key = f"claim:{claim_id}"
+
+        # 4. Write valid genesis row (seq 1) using standard audit writer
+        with AppRwSession() as session:
+            entry1 = write_audit_log(
+                db=session,
+                action="ACTION_1",
+                entity_type="Claim",
+                entity_id=str(claim_id),
+                actor_role="staff",
+                claim_id=claim_id,
+                event_data={"step": 1},
+            )
+            session.commit()
+            seq1_hash = entry1.hash
+
+        # 5. Direct SQL INSERT as app_rw: seq 2 with correct linkage (prev_seq=1, prev_hash=seq1_hash),
+        # but forged/wrong HMAC.
+        # This proves the DB does NOT block it: SQL constraints (FK, NOT NULL, seq consecutive) pass,
+        # but the DB has no native HMAC validation.
+        wrong_hmac = "0" * 64
+        with AppRwSession() as session:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO audit_log (
+                        id, chain_key, seq, prev_seq, prev_hash, hash,
+                        hash_version, key_id, event_id,
+                        entity_type, entity_table, entity_id, entity_pk,
+                        op, action, actor_role, payload_canonical,
+                        occurred_at, created_at
+                    ) VALUES (
+                        :id, :chain_key, :seq, :prev_seq, :prev_hash, :hash,
+                        :hash_version, :key_id, :event_id,
+                        :entity_type, :entity_table, :entity_id, :entity_pk,
+                        :op, :action, :actor_role, :payload_canonical,
+                        now(), now()
+                    )
+                    """
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "chain_key": chain_key,
+                    "seq": 2,
+                    "prev_seq": 1,
+                    "prev_hash": seq1_hash,
+                    "hash": wrong_hmac,
+                    "hash_version": 1,
+                    "key_id": 1,
+                    "event_id": uuid.uuid4(),
+                    "entity_type": "Claim",
+                    "entity_table": "claims",
+                    "entity_id": str(claim_id),
+                    "entity_pk": str(claim_id),
+                    "op": "INSERT",
+                    "action": "ACTION_1",
+                    "actor_role": "staff",
+                    "payload_canonical": "{}",
+                },
+            )
+            session.commit()
+
+            # Confirm row was accepted by the database (DB did not block it)
+            inserted_row = session.execute(
+                text(
+                    "SELECT seq, prev_seq, prev_hash, hash FROM audit_log WHERE chain_key = :k AND seq = 2"
+                ),
+                {"k": chain_key},
+            ).fetchone()
+            assert inserted_row is not None
+            assert inserted_row[0] == 2
+            assert inserted_row[1] == 1
+            assert inserted_row[2] == seq1_hash
+            assert inserted_row[3] == wrong_hmac
+
+        # 6. Run verify_chain and assert it detects the forged HMAC
+        with AppRwSession() as session:
+            res = verify_chain(session, chain_key, record_run=False)
+            assert res.is_valid is False
+            assert res.first_broken_seq == 2
+            assert res.error_message is not None
+            assert "Hash mismatch at seq 2" in res.error_message
 
         app_rw_engine.dispose()
     finally:
