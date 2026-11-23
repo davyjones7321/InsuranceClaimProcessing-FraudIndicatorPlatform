@@ -103,17 +103,18 @@ def smoke_test_via_db(database_url: str) -> None:
             print("Notice: No user found for customer in direct DB smoke test.")
             return
 
+        from app.schemas.claims import ClaimCreate
+
         claim_service = ClaimService(session)
-        claim = claim_service.register_claim(
+        claim_create = ClaimCreate(
             policy_id=policy.id,
             claim_category="COLLISION",
             incident_date=date.today() - timedelta(days=1),
             incident_location="Smoke Test Way",
             incident_description="Direct DB smoke test as app_rw",
             requested_amount=Decimal("15000.00"),
-            registered_by_id=user.id,
-            registered_by_role="customer",
         )
+        claim = claim_service.register_claim(claim_create, actor=user)
         session.commit()
         assert claim.claim_ref.startswith("CLM-")
         print(f"Direct DB smoke test PASSED: Registered claim {claim.claim_ref} as app_rw")

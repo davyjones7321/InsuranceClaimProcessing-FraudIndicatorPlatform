@@ -538,19 +538,19 @@ def test_staging_smoke_claim_registration_app_rw() -> None:
 
             # Register claim as app_rw
             from app.audit.verifier import verify_chain
+            from app.schemas.claims import ClaimCreate
             from app.services.claim_service import ClaimService
 
             claim_service = ClaimService(session)
-            claim = claim_service.register_claim(
+            claim_create = ClaimCreate(
                 policy_id=policy.id,
                 claim_category="COLLISION",
                 incident_date=date.today() - timedelta(days=2),
                 incident_location="Smoke Test Blvd",
                 incident_description="Staging smoke test registering claim as app_rw",
                 requested_amount=Decimal("25000.00"),
-                registered_by_id=user.id,
-                registered_by_role="customer",
             )
+            claim = claim_service.register_claim(claim_create, actor=user)
             session.commit()
 
             assert claim.id is not None
