@@ -790,13 +790,13 @@ def test_postgres_app_rw_insert_wrong_hmac_flagged_by_verifier() -> None:
                         hash_version, key_id, event_id,
                         entity_type, entity_table, entity_id, entity_pk,
                         op, action, actor_role, payload_canonical,
-                        occurred_at, created_at
+                        occurred_at
                     ) VALUES (
                         :id, :chain_key, :seq, :prev_seq, :prev_hash, :hash,
                         :hash_version, :key_id, :event_id,
                         :entity_type, :entity_table, :entity_id, :entity_pk,
                         :op, :action, :actor_role, :payload_canonical,
-                        now(), now()
+                        now()
                     )
                     """
                 ),
