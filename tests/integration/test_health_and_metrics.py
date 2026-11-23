@@ -1,6 +1,8 @@
 """Tests for health, readiness, operational metrics, request ID, and structured logging."""
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.config import settings
 from app.observability import mask_pii
@@ -77,3 +79,38 @@ def test_pii_masking_utility() -> None:
     masked_secret = mask_pii(raw_secret)
     assert "SecretPassword123!" not in masked_secret
     assert "******" in masked_secret
+
+
+@pytest.mark.parametrize(
+    ("revision", "expected_status"),
+    [
+        ("0010_schema_alignment", 200),
+        ("0008_operations_jobs", 503),
+    ],
+)
+def test_readyz_requires_current_alembic_head(
+    client: TestClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+    revision: str,
+    expected_status: int,
+) -> None:
+    """Staging readiness accepts the current schema head and rejects older revisions."""
+    monkeypatch.setattr(settings, "ENV", "staging")
+    db_session.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS alembic_version "
+            "(version_num VARCHAR(32) NOT NULL)"
+        )
+    )
+    db_session.execute(text("DELETE FROM alembic_version"))
+    db_session.execute(
+        text("INSERT INTO alembic_version (version_num) VALUES (:revision)"),
+        {"revision": revision},
+    )
+    db_session.commit()
+
+    response = client.get("/readyz")
+    assert response.status_code == expected_status
+    if expected_status == 503:
+        assert "0010_schema_alignment" in response.json()["detail"]

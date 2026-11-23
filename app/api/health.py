@@ -17,7 +17,7 @@ from app.rules.loader import (
     load_ruleset,
 )
 
-TARGET_ALEMBIC_HEAD = "0008_operations_job_runs_and_retention"
+TARGET_ALEMBIC_HEAD = "0010_schema_alignment"
 
 router = APIRouter(tags=["Health"])
 
