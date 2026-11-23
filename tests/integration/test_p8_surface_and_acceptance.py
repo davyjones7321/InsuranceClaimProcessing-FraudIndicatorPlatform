@@ -270,11 +270,19 @@ def test_ui_login_and_logout_flow(
     login_page = client.get("/ui/login")
     assert login_page.status_code == 200
     assert "Login" in login_page.text
+    csrf_marker = 'name="csrf_token" value="'
+    csrf_start = login_page.text.index(csrf_marker) + len(csrf_marker)
+    csrf_end = login_page.text.index('"', csrf_start)
+    login_csrf_token = login_page.text[csrf_start:csrf_end]
 
-    # Submit login
+    # Submit login with the token bound to the anonymous pre-auth cookie.
     post_res = client.post(
         "/ui/login",
-        data={"email": "staff@example.com", "password": "Password123!"},
+        data={
+            "email": "staff@example.com",
+            "password": "Password123!",
+            "csrf_token": login_csrf_token,
+        },
         follow_redirects=False,
     )
     assert post_res.status_code == 303

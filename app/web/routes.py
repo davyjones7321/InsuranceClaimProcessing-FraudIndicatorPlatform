@@ -9,6 +9,7 @@ Features:
 - Separation of duties enforcement on assessment, investigation, and decisions
 """
 
+import secrets
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -98,21 +99,33 @@ def login_page(
     msg_type: str = "info",
 ) -> Response:
     """Render user sign-in page."""
-    user, session_id, csrf_token = get_ui_session(request, db)
+    user, _, _ = get_ui_session(request, db)
     if user:
         return RedirectResponse(url="/ui/claims", status_code=303)
 
-    return templates.TemplateResponse(
+    login_csrf_id = request.cookies.get("claim_login_csrf") or secrets.token_urlsafe(32)
+    login_csrf_token = generate_csrf_token(login_csrf_id)
+    response = templates.TemplateResponse(
         request=request,
         name="login.html",
         context={
             "request": request,
             "user": None,
-            "csrf_token": csrf_token or "login_csrf",
+            "csrf_token": login_csrf_token,
             "alert_message": msg,
             "alert_type": msg_type,
         },
     )
+    response.set_cookie(
+        key="claim_login_csrf",
+        value=login_csrf_id,
+        max_age=settings.SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=settings.ENV in ("staging", "production"),
+        path="/ui",
+    )
+    return response
 
 
 @router.post("/login")
@@ -120,9 +133,14 @@ def login_action(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(...),
     db: Session = Depends(get_db),
 ) -> Response:
     """Authenticate credentials using the same controls as the API login."""
+    login_csrf_id = request.cookies.get("claim_login_csrf")
+    if not login_csrf_id or not validate_csrf_token(login_csrf_id, csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
     identifier = email.strip().lower()
     client_ip = request.client.host if request.client else "unknown"
 
@@ -140,7 +158,7 @@ def login_action(
             context={
                 "request": request,
                 "user": None,
-                "csrf_token": "login_csrf",
+                "csrf_token": generate_csrf_token(login_csrf_id),
                 "alert_message": "Invalid email or password",
                 "alert_type": "error",
             },
@@ -176,16 +194,20 @@ def login_action(
         samesite="lax",
         secure=settings.ENV in ("staging", "production"),
     )
+    response.delete_cookie(key="claim_login_csrf", path="/ui")
     return response
 
 
 @router.post("/logout")
 def logout_action(
     request: Request,
+    csrf_token: str = Form(...),
     db: Session = Depends(get_db),
 ) -> Response:
-    """Terminate user session."""
-    session_id = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    """Terminate user session after validating the session-bound CSRF token."""
+    _, session_id, _ = get_ui_session(request, db)
+    if not session_id or not validate_csrf_token(session_id, csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
     delete_session(db, session_id)
     db.commit()
 
