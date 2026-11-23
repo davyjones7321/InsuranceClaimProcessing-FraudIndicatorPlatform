@@ -7,8 +7,8 @@ from sqlalchemy import text
 from app.config import settings
 from app.db.models import User
 from app.observability import mask_pii
-from app.security.session import create_session
 from app.rules.loader import ACTIVE_RULESET_SHA256
+from app.security.session import create_session
 
 
 def test_healthz_liveness_probe(client: TestClient) -> None:
