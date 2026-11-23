@@ -13,8 +13,8 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from alembic import op
 
-revision: str = "0004_audit_integrity_append_only"
-down_revision: str | None = "0003_coverage_transactional_accounting"
+revision: str = "0004_audit_integrity"
+down_revision: str | None = "0003_coverage_accounting"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -71,9 +71,7 @@ def upgrade() -> None:
             sa.Column("payload_canonical", sa.Text(), nullable=False, server_default="{}")
         )
 
-        batch_op.create_unique_constraint("uq_audit_chain_seq", ["chain_key", "seq"])
         batch_op.create_unique_constraint("uq_audit_chain_seq_hash", ["chain_key", "seq", "hash"])
-        batch_op.create_unique_constraint("uq_audit_chain_prev_hash", ["chain_key", "prev_hash"])
         batch_op.create_check_constraint("chk_audit_seq_positive", "seq >= 1")
         batch_op.create_check_constraint(
             "chk_audit_genesis_null",
@@ -114,12 +112,21 @@ def upgrade() -> None:
                 FOR EACH ROW EXECUTE FUNCTION trg_prevent_update_delete_truncate();
                 """
             )
-            # Revoke permissions if app_rw role exists
+            op.execute(
+                f"""
+                CREATE OR REPLACE TRIGGER trg_no_truncate_{tbl}
+                BEFORE TRUNCATE ON {tbl}
+                FOR EACH STATEMENT EXECUTE FUNCTION trg_prevent_update_delete_truncate();
+                """
+            )
+            # Grant SELECT, INSERT and Revoke UPDATE, DELETE, TRUNCATE if app_rw role exists
             op.execute(
                 f"""
                 DO $$
                 BEGIN
                     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_rw') THEN
+                        GRANT USAGE ON SCHEMA public TO app_rw;
+                        GRANT SELECT, INSERT ON {tbl} TO app_rw;
                         REVOKE UPDATE, DELETE, TRUNCATE ON {tbl} FROM app_rw;
                     END IF;
                 END $$;
@@ -170,9 +177,7 @@ def downgrade() -> None:
         batch_op.drop_constraint("chk_audit_seq_consecutive", type_="check")
         batch_op.drop_constraint("chk_audit_genesis_null", type_="check")
         batch_op.drop_constraint("chk_audit_seq_positive", type_="check")
-        batch_op.drop_constraint("uq_audit_chain_prev_hash", type_="unique")
         batch_op.drop_constraint("uq_audit_chain_seq_hash", type_="unique")
-        batch_op.drop_constraint("uq_audit_chain_seq", type_="unique")
 
         batch_op.drop_column("payload_canonical")
         batch_op.drop_column("status_after")

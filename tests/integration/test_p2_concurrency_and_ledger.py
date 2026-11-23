@@ -564,6 +564,7 @@ def test_concurrent_2_approvals_never_exceed_limit(db_session, p2_fixtures):
     assert "exceeds remaining allowable payable limit" in refusals[0]
 
     # Verify coverage consumed_amount never exceeded limit
+    db_session.expire_all()
     fresh_cov = db_session.get(Coverage, cov.id)
     assert fresh_cov.consumed_amount == Decimal("80000.00")
     assert fresh_cov.consumed_amount <= fresh_cov.limit_amount
@@ -648,6 +649,7 @@ def test_concurrent_50_approvals_never_exceed_limit(db_session, p2_fixtures):
     assert len(refusals) == 25
 
     # Consumed amount is exactly 50,000 and never exceeds 50,000
+    db_session.expire_all()
     fresh_cov = db_session.get(Coverage, cov.id)
     assert fresh_cov.consumed_amount == Decimal("50000.00")
     assert fresh_cov.consumed_amount <= fresh_cov.limit_amount

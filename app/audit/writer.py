@@ -326,6 +326,8 @@ def write_audit_log(
             occurred_at=occurred_at,
             actor_id=actor_id,
             actor_role=actor_role,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
             entity_table=table_name,
             entity_pk=str(entity_id),
             op=op,

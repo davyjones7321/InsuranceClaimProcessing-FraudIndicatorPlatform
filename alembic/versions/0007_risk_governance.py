@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from alembic import op
 
 revision: str = "0007_risk_governance"
-down_revision: str | None = "0006_assessment_engine_replay_and_snapshots"
+down_revision: str | None = "0006_assessment_engine"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -24,6 +24,19 @@ def upgrade() -> None:
     is_pg = bind.dialect.name == "postgresql"
     uuid_type = UUID(as_uuid=True) if is_pg else sa.String(36)
     json_type = JSONB if is_pg else sa.JSON()
+
+    if is_pg:
+        op.execute("ALTER TYPE risk_category ADD VALUE IF NOT EXISTS 'UNASSESSED';")
+        op.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'indicator_status') THEN
+                    ALTER TYPE indicator_status ADD VALUE IF NOT EXISTS 'PILOT';
+                END IF;
+            END $$;
+            """
+        )
 
     # 1. Create history_coverage table
     op.create_table(
@@ -273,6 +286,7 @@ def upgrade() -> None:
             type_=sa.String(32),
             nullable=False,
             server_default="NOT_TRIGGERED",
+            postgresql_using="status::text",
         )
 
     # 8. Update investigations table: referral type, referral remarks, indicator feedback

@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument(
         "--anchor-dir",
         default=DEFAULT_ANCHOR_DIR,
-        help=f"Directory to write anchor manifests (default: {DEFAULT_ANCHOR_DIR})",
+        help="Optional local directory to write anchor manifests (default: None, writes to D3 S3 Object Lock)",
     )
     parser.add_argument(
         "--date",

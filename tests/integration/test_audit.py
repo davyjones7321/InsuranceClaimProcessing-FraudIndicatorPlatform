@@ -4,6 +4,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.audit.verifier import verify_chain
@@ -121,8 +122,13 @@ def test_audit_tamper_detection_sequence_gap(db_session: Session) -> None:
     # Delete row seq 2
     row2 = db_session.query(AuditLog).filter_by(chain_key=chain_key, seq=2).first()
     assert row2 is not None
+    is_pg = db_session.bind is not None and db_session.bind.dialect.name == "postgresql"
+    if is_pg:
+        db_session.execute(text("ALTER TABLE audit_log DISABLE TRIGGER ALL;"))
     db_session.delete(row2)
     db_session.flush()
+    if is_pg:
+        db_session.execute(text("ALTER TABLE audit_log ENABLE TRIGGER ALL;"))
 
     res = verify_chain(db_session, chain_key, record_run=False)
     assert res.is_valid is False

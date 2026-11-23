@@ -53,6 +53,16 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         address="77 Wall Street",
         state_region="NY",
     )
+    other_cust = Customer(
+        id=uuid.uuid4(),
+        customer_no="CUST-VAL-002",
+        full_name="Wendy Worker",
+        dob=date(1987, 8, 15),
+        email="wendy.worker@example.com",
+        phone="+15559998",
+        address="78 Wall Street",
+        state_region="NY",
+    )
     user_cust = User(
         id=uuid.uuid4(),
         email="bob.cust@example.com",
@@ -66,7 +76,7 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         email="other.cust@example.com",
         password_hash=hash_password("Password123!"),
         role=UserRole.CUSTOMER,
-        customer_id=uuid.uuid4(),
+        customer_id=other_cust.id,
         is_active=True,
     )
     user_staff = User(
@@ -145,6 +155,7 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
     db_session.add_all(
         [
             cust,
+            other_cust,
             user_cust,
             user_other_cust,
             user_staff,

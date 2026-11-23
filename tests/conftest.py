@@ -66,13 +66,16 @@ TestingSessionLocal = sessionmaker(
 
 @pytest.fixture(autouse=True)
 def clean_db() -> Generator[None, None, None]:
-    """Create fresh schema before each test and drop afterwards."""
+    """Create fresh schema before each test and clean data afterwards."""
     Base.metadata.create_all(bind=test_engine)
     yield
     if "postgresql" in str(test_engine.url):
         with test_engine.connect() as conn:
-            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
-            conn.commit()
+            tables = [t.name for t in Base.metadata.sorted_tables]
+            if tables:
+                table_list = ", ".join(f'"{t}"' for t in tables)
+                conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
+                conn.commit()
     else:
         Base.metadata.drop_all(bind=test_engine)
 

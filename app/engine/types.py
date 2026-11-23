@@ -46,6 +46,7 @@ class IndicatorEvaluationStatusEnum(StrEnum):
     SKIPPED = "SKIPPED"
     NOT_APPLICABLE = "NOT_APPLICABLE"
     DISABLED = "DISABLED"
+    PILOT = "PILOT"
 
 
 @dataclass(frozen=True)

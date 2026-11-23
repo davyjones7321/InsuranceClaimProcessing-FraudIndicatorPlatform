@@ -13,8 +13,8 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from alembic import op
 
-revision: str = "0005_document_lifecycle_and_identity_attestation"
-down_revision: str | None = "0004_audit_integrity_append_only"
+revision: str = "0005_document_lifecycle"
+down_revision: str | None = "0004_audit_integrity"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

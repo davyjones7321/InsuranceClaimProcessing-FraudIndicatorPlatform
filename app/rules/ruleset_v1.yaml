@@ -2,9 +2,6 @@
 ruleset_version: "v1"
 engine_version: "1.0.0"
 
-# Section A.1: Proposed claim-limit policy (CAP_WITH_WARNING vs REJECT)
-claim_limit_policy: "CAP_WITH_WARNING"
-
 validation_rules:
   V01:
     name: "Policy Exists & Belongs"

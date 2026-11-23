@@ -299,3 +299,111 @@ def test_hypothesis_health_cap_invariants(
     assert out.max_eligible_amount >= Decimal("0.00")
     assert out.max_eligible_amount <= limit
     assert out.max_eligible_amount <= loss
+
+
+def test_assessment_negative_input_validations() -> None:
+    """Verify strictly that negative numbers in AssessmentInput raise ValueError."""
+    valid_base = {
+        "product_type": "HEALTH",
+        "requested_amount": Decimal("1000.00"),
+        "remaining_limit": Decimal("5000.00"),
+        "assessed_loss": Decimal("1000.00"),
+        "deductible": Decimal("100.00"),
+        "copay_percent": Decimal("10.00"),
+        "depreciation": Decimal("0.00"),
+        "sum_insured": Decimal("5000.00"),
+        "value_at_risk": Decimal("5000.00"),
+    }
+
+    # Negative requested amount
+    with pytest.raises(ValueError, match="Requested amount cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "requested_amount": Decimal("-1.00")}))
+
+    # Negative assessed loss
+    with pytest.raises(ValueError, match="Assessed loss cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "assessed_loss": Decimal("-1.00")}))
+
+    # Negative remaining limit
+    with pytest.raises(ValueError, match="Remaining limit cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "remaining_limit": Decimal("-1.00")}))
+
+    # Negative deductible
+    with pytest.raises(ValueError, match="Deductible cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "deductible": Decimal("-1.00")}))
+
+    # Negative copay
+    with pytest.raises(ValueError, match="Copay percent must be between 0 and 100"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "copay_percent": Decimal("-1.00")}))
+
+    # Copay > 100
+    with pytest.raises(ValueError, match="Copay percent must be between 0 and 100"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "copay_percent": Decimal("101.00")}))
+
+    # Negative depreciation
+    with pytest.raises(ValueError, match="Depreciation cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "depreciation": Decimal("-1.00")}))
+
+    # Negative sum insured
+    with pytest.raises(ValueError, match="Sum insured cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "sum_insured": Decimal("-1.00")}))
+
+    # Negative value at risk
+    with pytest.raises(ValueError, match="Value at risk cannot be negative"):
+        calculate_assessment_cap(AssessmentInput(**{**valid_base, "value_at_risk": Decimal("-1.00")}))
+
+
+def test_assessment_component_validations() -> None:
+    """Verify component amount validation rules."""
+    # Negative component claimed or assessed amount
+    with pytest.raises(ValueError, match="Component 'parts' amounts cannot be negative"):
+        calculate_assessment_cap(
+            AssessmentInput(
+                product_type="VEHICLE",
+                requested_amount=Decimal("1000.00"),
+                remaining_limit=Decimal("5000.00"),
+                assessed_loss=Decimal("1000.00"),
+                components=(
+                    AssessmentComponentInput(
+                        component_type="parts",
+                        claimed_amount=Decimal("-10.00"),
+                        assessed_amount=Decimal("1000.00"),
+                    ),
+                ),
+            )
+        )
+
+    # Component assessed amount > claimed amount
+    with pytest.raises(ValueError, match="cannot exceed claimed amount"):
+        calculate_assessment_cap(
+            AssessmentInput(
+                product_type="VEHICLE",
+                requested_amount=Decimal("1000.00"),
+                remaining_limit=Decimal("5000.00"),
+                assessed_loss=Decimal("1000.00"),
+                components=(
+                    AssessmentComponentInput(
+                        component_type="parts",
+                        claimed_amount=Decimal("500.00"),
+                        assessed_amount=Decimal("600.00"),
+                    ),
+                ),
+            )
+        )
+
+    # Sum of component assessed amounts mismatch
+    with pytest.raises(ValueError, match="does not match total assessed loss"):
+        calculate_assessment_cap(
+            AssessmentInput(
+                product_type="VEHICLE",
+                requested_amount=Decimal("1000.00"),
+                remaining_limit=Decimal("5000.00"),
+                assessed_loss=Decimal("1000.00"),
+                components=(
+                    AssessmentComponentInput(
+                        component_type="parts",
+                        claimed_amount=Decimal("500.00"),
+                        assessed_amount=Decimal("500.00"),
+                    ),
+                ),
+            )
+        )

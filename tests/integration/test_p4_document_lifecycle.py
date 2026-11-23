@@ -406,7 +406,7 @@ def test_db_level_attestation_sequence_check_constraint(
         doc_code="DOC_ID",
         file_name="test.pdf",
         storage_key="test_key_seq",
-        sha256="abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        sha256="a" * 64,
         size_bytes=100,
         mime_type="application/pdf",
         status=DocumentStatus.PENDING_REVIEW,

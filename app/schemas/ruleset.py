@@ -74,7 +74,7 @@ class RulesetSchema(BaseModel):
 
     ruleset_version: str
     engine_version: str
-    claim_limit_policy: str = Field(default="CAP_WITH_WARNING")
+    claim_limit_policy: str | None = None
     validation_rules: dict[str, Any] = Field(default_factory=dict)
     risk_groups: dict[str, RiskGroupSchema]
     risk_thresholds: RiskThresholdsSchema

@@ -13,8 +13,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from alembic import op
 
-revision: str = "0006_assessment_engine_replay_and_snapshots"
-down_revision: str | None = "0005_document_lifecycle_and_identity_attestation"
+revision: str = "0006_assessment_engine"
+down_revision: str | None = "0005_document_lifecycle"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

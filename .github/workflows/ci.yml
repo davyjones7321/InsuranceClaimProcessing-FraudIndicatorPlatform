@@ -113,7 +113,7 @@ jobs:
           SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
           AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
         run: |
-          pytest tests/unit/test_p6_rules.py --cov=app/engine --cov-fail-under=90
+          pytest --cov=app/engine --cov-fail-under=90
 
       - name: Run Full Test Suite with Overall Coverage Threshold (>= 80%)
         env:

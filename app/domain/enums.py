@@ -103,6 +103,7 @@ class IndicatorEvaluationStatus(StrEnum):
     SKIPPED = "SKIPPED"
     NOT_APPLICABLE = "NOT_APPLICABLE"
     DISABLED = "DISABLED"
+    PILOT = "PILOT"
 
 
 class RiskCompleteness(StrEnum):

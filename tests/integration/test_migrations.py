@@ -1,11 +1,12 @@
 """Integration test verifying that Alembic migrations apply on an empty DB and cleanly roll back."""
 
+import os
 from pathlib import Path
 
-from alembic.config import Config
-from sqlalchemy import create_engine, inspect
-
+import pytest
 from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, inspect, text
 
 
 def test_alembic_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
@@ -76,3 +77,90 @@ def test_alembic_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         assert "claims" in reapplied_tables
     finally:
         engine.dispose()
+
+
+def test_alembic_postgres_app_rw_append_only_enforcement() -> None:
+    """Build schema ONLY from Alembic migrations on PostgreSQL, connect as app_rw,
+    and prove UPDATE, DELETE, TRUNCATE fail on audit_log and protected tables.
+    """
+    env_db = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    require_pg = os.environ.get("REQUIRE_POSTGRES", "0").lower() in ("1", "true", "yes")
+    if not require_pg and (not env_db or "postgresql" not in env_db):
+        pytest.skip("PostgreSQL required for migration app_rw append-only test")
+
+    admin_db_url = "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
+    try:
+        admin_engine = create_engine(admin_db_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        pytest.skip(f"PostgreSQL server unreachable: {exc}")
+
+    test_db_name = "test_alembic_app_rw_ci"
+    with admin_engine.connect() as conn:
+        conn.execute(
+            text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+            if conn.dialect.server_version_info >= (13,)
+            else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+        )
+        conn.execute(text(f"CREATE DATABASE {test_db_name};"))
+
+    migrator_url = f"postgresql+psycopg://postgres:postgres@localhost:5432/{test_db_name}"
+    migrator_engine = create_engine(migrator_url)
+
+    try:
+        # 1. Run deploy/init-db.sql on empty database
+        with open("deploy/init-db.sql", encoding="utf-8") as f:
+            init_sql = f.read()
+        with migrator_engine.connect() as conn:
+            conn.execute(text(init_sql))
+            conn.commit()
+
+        # 2. Build schema ONLY from Alembic migrations
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        command.upgrade(alembic_cfg, "head")
+
+        # 3. Connect as app_rw
+        app_rw_url = f"postgresql+psycopg://app_rw:app_rw_secure_pass@localhost:5432/{test_db_name}"
+        app_rw_engine = create_engine(app_rw_url)
+
+        protected_tables = [
+            "audit_log",
+            "claim_status_history",
+            "decisions",
+            "investigation_findings",
+            "coverage_ledger",
+            "access_log",
+        ]
+
+        with app_rw_engine.connect() as rw_conn:
+            for tbl in protected_tables:
+                # A. Attempt UPDATE
+                with pytest.raises(Exception, match=r"(permission denied|append-only|prohibited)"):
+                    rw_conn.execute(text(f"UPDATE {tbl} SET id = id"))
+                    rw_conn.commit()
+                rw_conn.rollback()
+
+                # B. Attempt DELETE
+                with pytest.raises(Exception, match=r"(permission denied|append-only|prohibited)"):
+                    rw_conn.execute(text(f"DELETE FROM {tbl}"))
+                    rw_conn.commit()
+                rw_conn.rollback()
+
+                # C. Attempt TRUNCATE
+                with pytest.raises(Exception, match=r"(permission denied|append-only|prohibited)"):
+                    rw_conn.execute(text(f"TRUNCATE TABLE {tbl}"))
+                    rw_conn.commit()
+                rw_conn.rollback()
+
+        app_rw_engine.dispose()
+    finally:
+        migrator_engine.dispose()
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+                if conn.dialect.server_version_info >= (13,)
+                else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+            )
+        admin_engine.dispose()

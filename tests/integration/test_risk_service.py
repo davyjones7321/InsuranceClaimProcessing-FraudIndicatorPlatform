@@ -52,6 +52,16 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         address="100 Cyberdyne Way",
         state_region="CA",
     )
+    other_cust = Customer(
+        id=uuid.uuid4(),
+        customer_no="CUST-RISK-002",
+        full_name="Kyle Reese",
+        dob=date(1985, 4, 12),
+        email="kyle.reese@example.com",
+        phone="+15554322",
+        address="101 Cyberdyne Way",
+        state_region="CA",
+    )
     user_cust = User(
         id=uuid.uuid4(),
         email="sarah.cust@example.com",
@@ -65,7 +75,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         email="other.risk.cust@example.com",
         password_hash=hash_password("Password123!"),
         role=UserRole.CUSTOMER,
-        customer_id=uuid.uuid4(),
+        customer_id=other_cust.id,
         is_active=True,
     )
     user_staff = User(
@@ -148,6 +158,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
     db_session.add_all(
         [
             cust,
+            other_cust,
             user_cust,
             user_other_cust,
             user_staff,

@@ -795,6 +795,8 @@ class AuditLog(Base):
     )
     actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     actor_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    entity_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     entity_table: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_pk: Mapped[str] = mapped_column(String(128), nullable=False)
     op: Mapped[str] = mapped_column(String(32), nullable=False, default="INSERT")

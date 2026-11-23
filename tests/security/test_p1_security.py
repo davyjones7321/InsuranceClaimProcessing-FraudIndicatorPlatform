@@ -37,6 +37,7 @@ from app.services.claim_service import ClaimService
 def auth_headers(db: Session, user: User) -> dict[str, str]:
     """Helper creating session and returning authorization bearer headers."""
     session_id = create_session(db, user)
+    db.commit()
     return {"Authorization": f"Bearer {session_id}"}
 
 
