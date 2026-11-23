@@ -93,6 +93,8 @@ def test_audit_tamper_detection_modifying_event_data(db_session: Session) -> Non
     # Tamper with row seq 2 event_data directly in DB
     row2 = db_session.query(AuditLog).filter_by(chain_key=chain_key, seq=2).first()
     assert row2 is not None
+    if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+        db_session.execute(text("SET LOCAL session_replication_role = replica;"))
     row2.event_data = {"key": "TAMPERED_VALUE"}
     db_session.flush()
 
@@ -122,13 +124,10 @@ def test_audit_tamper_detection_sequence_gap(db_session: Session) -> None:
     # Delete row seq 2
     row2 = db_session.query(AuditLog).filter_by(chain_key=chain_key, seq=2).first()
     assert row2 is not None
-    is_pg = db_session.bind is not None and db_session.bind.dialect.name == "postgresql"
-    if is_pg:
-        db_session.execute(text("ALTER TABLE audit_log DISABLE TRIGGER ALL;"))
+    if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+        db_session.execute(text("SET LOCAL session_replication_role = replica;"))
     db_session.delete(row2)
     db_session.flush()
-    if is_pg:
-        db_session.execute(text("ALTER TABLE audit_log ENABLE TRIGGER ALL;"))
 
     res = verify_chain(db_session, chain_key, record_run=False)
     assert res.is_valid is False

@@ -108,6 +108,7 @@ jobs:
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+          alembic check
 
       - name: Enforce Rules Engine Coverage Threshold (>= 90%)
         env:
@@ -128,18 +129,17 @@ jobs:
           SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
           AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
         run: |
-          pytest --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --tb=short || {
-            echo "### Pytest Failure Details" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            pytest --last-failed --tb=short -q 2>&1 | head -n 100 >> $GITHUB_STEP_SUMMARY || true
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            pytest --last-failed --tb=line -q 2>&1 | grep -E "(FAILED|FAIL |ERROR)" | head -n 20 | while IFS= read -r line; do
-              echo "::error::$line"
-            done || true
-            FAIL_SUMMARY=$(pytest --last-failed -q --tb=line 2>&1 | grep -E "(FAILED|FAIL |ERROR)" | head -n 5 | tr '\r\n' ' ' || true)
-            echo "::error title=Failed Tests::$FAIL_SUMMARY"
-            exit 1
-          }
+          set -o pipefail
+          pytest -ra --tb=short --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --junitxml=junit.xml 2>&1 | tee pytest.log
+
+      - name: Upload Test Results and Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: |
+            junit.xml
+            pytest.log
 
       - name: Execute Automated PostgreSQL Backup & Restore Drill
         env:

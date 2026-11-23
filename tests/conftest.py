@@ -67,19 +67,18 @@ TestingSessionLocal = sessionmaker(
 @pytest.fixture(autouse=True)
 def clean_db() -> Generator[None, None, None]:
     """Create fresh schema before each test and clean data afterwards."""
-    Base.metadata.create_all(bind=test_engine)
+    if not require_postgres:
+        Base.metadata.create_all(bind=test_engine)
     yield
-    if "postgresql" in str(test_engine.url):
+    if require_postgres or "postgresql" in str(test_engine.url):
         with test_engine.connect() as conn:
             tables = [t.name for t in Base.metadata.sorted_tables]
             if tables:
                 table_list = ", ".join(f'"{t}"' for t in tables)
                 try:
-                    for t in tables:
-                        conn.execute(text(f'ALTER TABLE "{t}" DISABLE TRIGGER ALL;'))
+                    conn.execute(text("SET session_replication_role = 'replica';"))
                     conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
-                    for t in tables:
-                        conn.execute(text(f'ALTER TABLE "{t}" ENABLE TRIGGER ALL;'))
+                    conn.execute(text("SET session_replication_role = 'origin';"))
                     conn.commit()
                 except Exception:
                     conn.rollback()

@@ -328,6 +328,8 @@ def test_tamper_matrix_row_mutation(db_session: Session):
         select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 2)
     ).first()
     assert row2 is not None
+    if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+        db_session.execute(text("SET LOCAL session_replication_role = replica;"))
     row2.event_data = {"key": "TAMPERED"}
     row2.payload_canonical = json.dumps({"key": "TAMPERED"})
     db_session.commit()
@@ -360,13 +362,10 @@ def test_tamper_matrix_sequence_gap(db_session: Session):
         select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 2)
     ).first()
     assert row2 is not None
-    is_pg = db_session.bind is not None and db_session.bind.dialect.name == "postgresql"
-    if is_pg:
-        db_session.execute(text("ALTER TABLE audit_log DISABLE TRIGGER ALL;"))
+    if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+        db_session.execute(text("SET LOCAL session_replication_role = replica;"))
     db_session.delete(row2)
     db_session.commit()
-    if is_pg:
-        db_session.execute(text("ALTER TABLE audit_log ENABLE TRIGGER ALL;"))
 
     res = verify_chain(db_session, chain_key, record_run=False)
     assert res.is_valid is False
@@ -405,6 +404,8 @@ def test_tamper_matrix_tail_truncation_detected_via_external_anchor(db_session: 
             select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 3)
         ).first()
         assert row3 is not None
+        if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+            db_session.execute(text("SET LOCAL session_replication_role = replica;"))
         db_session.delete(row3)
         head = db_session.scalars(
             select(AuditChainHead).where(AuditChainHead.chain_key == chain_key)
@@ -459,6 +460,8 @@ def test_tamper_matrix_anchor_mismatch_detected(db_session: Session):
             select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 1)
         ).first()
         assert row1 is not None
+        if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+            db_session.execute(text("SET LOCAL session_replication_role = replica;"))
         row1.hash = "0" * 64
         head = db_session.scalars(
             select(AuditChainHead).where(AuditChainHead.chain_key == chain_key)
@@ -1010,6 +1013,8 @@ def test_access_log_integrity_and_daily_anchor(db_session: Session, p3_fixtures)
         # Tampering with an access log row hash is detected
         first_log = db_session.scalars(select(AccessLog).order_by(AccessLog.created_at)).first()
         assert first_log is not None
+        if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+            db_session.execute(text("SET LOCAL session_replication_role = replica;"))
         first_log.row_hash = "0" * 64
         db_session.commit()
 

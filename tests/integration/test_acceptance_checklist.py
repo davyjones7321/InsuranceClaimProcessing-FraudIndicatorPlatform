@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.analytics.service import AnalyticsService
@@ -659,6 +659,8 @@ def test_acceptance_09_audit_tamper_detection(db_session: Session) -> None:
         select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 1)
     ).first()
     assert log_entry is not None
+    if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+        db_session.execute(text("SET LOCAL session_replication_role = replica;"))
     log_entry.event_data = {"note_sha256": "1" * 64}
     db_session.commit()
 
