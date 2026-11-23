@@ -75,17 +75,15 @@ def clean_db() -> Generator[None, None, None]:
             if tables:
                 table_list = ", ".join(f'"{t}"' for t in tables)
                 try:
-                    conn.execute(text("SET session_replication_role = 'replica';"))
+                    for t in tables:
+                        conn.execute(text(f'ALTER TABLE "{t}" DISABLE TRIGGER ALL;'))
                     conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
-                    conn.execute(text("SET session_replication_role = 'origin';"))
+                    for t in tables:
+                        conn.execute(text(f'ALTER TABLE "{t}" ENABLE TRIGGER ALL;'))
                     conn.commit()
                 except Exception:
                     conn.rollback()
-                    try:
-                        conn.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;"))
-                        conn.commit()
-                    except Exception:
-                        conn.rollback()
+                    raise
     else:
         Base.metadata.drop_all(bind=test_engine)
 

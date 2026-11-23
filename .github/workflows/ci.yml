@@ -131,7 +131,7 @@ jobs:
           pytest --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --tb=short || {
             echo "### Pytest Failure Details" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            pytest --last-failed --tb=short >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            pytest --last-failed --tb=short -q | head -c 200000 >> $GITHUB_STEP_SUMMARY 2>&1 || true
             echo '```' >> $GITHUB_STEP_SUMMARY
             exit 1
           }
