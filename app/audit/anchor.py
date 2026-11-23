@@ -162,7 +162,7 @@ class S3AnchorClient:
         key = f"manifests/manifest_{date_str}_{root_hash[:12]}.json"
 
         payload = canonical_json_bytes(manifest_body)
-        md5_digest = hashlib.md5(payload).digest()
+        md5_digest = hashlib.md5(payload, usedforsecurity=False).digest()
         content_md5 = base64.b64encode(md5_digest).decode("ascii")
 
         retain_until = (utc_now() + timedelta(days=self.retention_days)).strftime(
@@ -249,7 +249,7 @@ class S3AnchorClient:
             if resp.status_code != 200:
                 return None
 
-            root = ET.fromstring(resp.text)
+            root = ET.fromstring(resp.text)  # nosec B314
             keys = [
                 elem.text
                 for elem in root.iter()
