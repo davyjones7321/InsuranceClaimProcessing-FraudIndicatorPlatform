@@ -72,18 +72,28 @@ jobs:
 
       - name: Execute Database Migration (Separate Release Step)
         run: |
-          echo "Running database migrations for staging..."
-          # docker run --rm ${{ needs.build.outputs.image_name }} alembic upgrade head
+          echo "Running database migrations for staging as migrator..."
+          # docker run --rm \
+          #   -e DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.STAGING_MIGRATOR_DB_PASSWORD }}@staging-db:5432/insurance_claims \
+          #   -e MIGRATOR_DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.STAGING_MIGRATOR_DB_PASSWORD }}@staging-db:5432/insurance_claims \
+          #   ${{ needs.build.outputs.image_name }} alembic upgrade head
 
       - name: Deploy container to Staging
         run: |
-          echo "Deploying image ${{ needs.build.outputs.image_name }} to staging..."
-          # Update staging compose / task definition and reload services
+          echo "Deploying image ${{ needs.build.outputs.image_name }} to staging as app_rw..."
+          # docker run -d \
+          #   -e DATABASE_URL=postgresql+psycopg://app_rw:${{ secrets.STAGING_APP_RW_DB_PASSWORD }}@staging-db:5432/insurance_claims \
+          #   ...
 
       - name: Verify Readiness Probe (/readyz)
         run: |
           echo "Verifying staging readiness..."
           # curl -f --retry 10 --retry-delay 3 https://staging.claimflow.internal/readyz
+
+      - name: Staging Smoke Test (Register Claim as app_rw)
+        run: |
+          echo "Executing staging smoke test registering claim as app_rw..."
+          # python scripts/smoke_test_staging.py --url https://staging.claimflow.internal
 
       - name: Rollback on Failure
         if: failure()
@@ -110,13 +120,18 @@ jobs:
 
       - name: Execute Database Migration (Separate Release Step)
         run: |
-          echo "Running production database migrations..."
-          # docker run --rm ${{ needs.build.outputs.image_name }} alembic upgrade head
+          echo "Running production database migrations as migrator..."
+          # docker run --rm \
+          #   -e DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.PROD_MIGRATOR_DB_PASSWORD }}@prod-db:5432/insurance_claims \
+          #   -e MIGRATOR_DATABASE_URL=postgresql+psycopg://migrator:${{ secrets.PROD_MIGRATOR_DB_PASSWORD }}@prod-db:5432/insurance_claims \
+          #   ${{ needs.build.outputs.image_name }} alembic upgrade head
 
       - name: Deploy container to Production
         run: |
-          echo "Deploying verified image ${{ needs.build.outputs.image_name }} to production..."
-          # Zero-downtime rolling restart behind Caddy TLS reverse proxy
+          echo "Deploying verified image ${{ needs.build.outputs.image_name }} to production as app_rw..."
+          # docker run -d \
+          #   -e DATABASE_URL=postgresql+psycopg://app_rw:${{ secrets.PROD_APP_RW_DB_PASSWORD }}@prod-db:5432/insurance_claims \
+          #   ...
 
       - name: Verify Production Readiness Probe (/readyz)
         run: |

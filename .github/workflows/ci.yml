@@ -94,10 +94,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
+      - name: Initialize PostgreSQL Roles and Schema Privileges
+        run: |
+          PGPASSWORD=postgres_ci_password psql -h localhost -U postgres -d insurance_claims_test -f deploy/init-db.sql
+
       - name: Test Alembic Migrations Up and Down Drill
         env:
-          DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
-          MIGRATOR_DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          DATABASE_URL: postgresql+psycopg://migrator:migrator_secure_pass@localhost:5432/insurance_claims_test
+          MIGRATOR_DATABASE_URL: postgresql+psycopg://migrator:migrator_secure_pass@localhost:5432/insurance_claims_test
           SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
           AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
         run: |

@@ -1,6 +1,7 @@
 """Phase P3 verification tests: Audit integrity, database-level append-only, strict allowlisting, HMAC chaining, concurrency, and external anchoring."""
 
 import json
+import os
 import shutil
 import tempfile
 import uuid
@@ -10,9 +11,12 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from alembic.config import Config
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
 from app.audit.anchor import create_daily_anchor_manifest
 from app.audit.schema import (
     FloatNotAllowedError,
@@ -25,14 +29,12 @@ from app.audit.schema import (
 )
 from app.audit.verifier import verify_access_log, verify_chain
 from app.audit.writer import get_chain_lock, write_audit_log
-from app.db.base import utc_now
 from app.db.models import (
     AccessLog,
     Assessment,
     AuditChainHead,
     AuditLog,
     Claim,
-    ClaimStatusHistory,
     Coverage,
     CoverageLedger,
     Customer,
@@ -602,6 +604,104 @@ def test_concurrency_50_first_writes_to_new_chains_no_first_write_race(db_sessio
         res = verify_chain(db_session, chain_key, record_run=False)
         assert res.is_valid is True
         assert res.total_events == 1
+
+
+def test_audit_writer_app_rw_50_concurrent_writers_on_migrated_db():
+    """Runs the audit writer as app_rw on a migrated database: 50 concurrent writers
+    on one new chain, zero errors, verify_chain valid.
+    """
+    test_db_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_db_url or "postgresql" not in test_db_url:
+        pytest.skip("PostgreSQL TEST_DATABASE_URL required for app_rw role concurrency test")
+
+    parsed_url = make_url(test_db_url)
+    admin_db_url = parsed_url.set(database="postgres").render_as_string(hide_password=False)
+    try:
+        admin_engine = create_engine(admin_db_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        pytest.fail(f"PostgreSQL server unreachable at {admin_db_url}: {exc}")
+
+    test_db_name = "test_audit_app_rw_concurrency"
+    with admin_engine.connect() as conn:
+        conn.execute(
+            text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+            if conn.dialect.server_version_info >= (13,)
+            else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+        )
+        conn.execute(text(f"CREATE DATABASE {test_db_name};"))
+
+    try:
+        # 1. Run deploy/init-db.sql on empty database
+        admin_test_url = parsed_url.set(database=test_db_name).render_as_string(hide_password=False)
+        admin_test_engine = create_engine(admin_test_url)
+        with open("deploy/init-db.sql", encoding="utf-8") as f:
+            init_sql = f.read()
+        with admin_test_engine.connect() as conn:
+            conn.execute(text(init_sql))
+            conn.commit()
+        admin_test_engine.dispose()
+
+        # 2. Run alembic upgrade head as migrator
+        migrator_url = parsed_url.set(
+            username="migrator", password="migrator_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        command.upgrade(alembic_cfg, "head")
+
+        # 3. Connect as restricted app_rw role
+        app_rw_url = parsed_url.set(
+            username="app_rw", password="app_rw_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        app_rw_engine = create_engine(app_rw_url, pool_size=50, max_overflow=20)
+        AppRwSession = sessionmaker(bind=app_rw_engine, autocommit=False, autoflush=False)
+
+        claim_id = uuid.uuid4()
+        chain_key = f"claim:{claim_id}"
+        num_writers = 50
+
+        def _worker(thread_idx: int) -> int:
+            session = AppRwSession()
+            try:
+                entry = write_audit_log(
+                    db=session,
+                    action="ACTION_1",
+                    entity_type="Claim",
+                    entity_id=str(claim_id),
+                    actor_role="staff",
+                    claim_id=claim_id,
+                    event_data={"step": thread_idx},
+                )
+                session.commit()
+                return entry.seq
+            finally:
+                session.close()
+
+        with ThreadPoolExecutor(max_workers=25) as executor:
+            futures = [executor.submit(_worker, i) for i in range(1, num_writers + 1)]
+            seqs = [f.result() for f in as_completed(futures)]
+
+        assert len(seqs) == num_writers
+        assert sorted(seqs) == list(range(1, num_writers + 1))
+
+        # 4. Verify chain integrity as app_rw
+        with AppRwSession() as verify_session:
+            res = verify_chain(verify_session, chain_key, record_run=False)
+            assert res.is_valid is True
+            assert res.total_events == num_writers
+            assert res.first_broken_seq is None
+
+        app_rw_engine.dispose()
+    finally:
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+                if conn.dialect.server_version_info >= (13,)
+                else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+            )
+        admin_engine.dispose()
 
 
 # =========================================================================

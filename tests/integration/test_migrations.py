@@ -4,9 +4,11 @@ import os
 from pathlib import Path
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
+
+from alembic import command
 
 
 def test_alembic_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
@@ -83,18 +85,18 @@ def test_alembic_postgres_app_rw_append_only_enforcement() -> None:
     """Build schema ONLY from Alembic migrations on PostgreSQL, connect as app_rw,
     and prove UPDATE, DELETE, TRUNCATE fail on audit_log and protected tables.
     """
-    env_db = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
-    require_pg = os.environ.get("REQUIRE_POSTGRES", "0").lower() in ("1", "true", "yes")
-    if not require_pg and (not env_db or "postgresql" not in env_db):
-        pytest.skip("PostgreSQL required for migration app_rw append-only test")
+    test_db_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_db_url or "postgresql" not in test_db_url:
+        pytest.fail("TEST_DATABASE_URL environment variable must be set to a valid PostgreSQL URL")
 
-    admin_db_url = "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
+    parsed_url = make_url(test_db_url)
+    admin_db_url = parsed_url.set(database="postgres").render_as_string(hide_password=False)
     try:
         admin_engine = create_engine(admin_db_url, isolation_level="AUTOCOMMIT")
         with admin_engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except Exception as exc:
-        pytest.skip(f"PostgreSQL server unreachable: {exc}")
+        pytest.fail(f"PostgreSQL server unreachable at {admin_db_url}: {exc}")
 
     test_db_name = "test_alembic_app_rw_ci"
     with admin_engine.connect() as conn:
@@ -105,24 +107,31 @@ def test_alembic_postgres_app_rw_append_only_enforcement() -> None:
         )
         conn.execute(text(f"CREATE DATABASE {test_db_name};"))
 
-    migrator_url = f"postgresql+psycopg://postgres:postgres@localhost:5432/{test_db_name}"
-    migrator_engine = create_engine(migrator_url)
-
     try:
-        # 1. Run deploy/init-db.sql on empty database
+        # 1. Run deploy/init-db.sql on empty database using admin connection
+        admin_test_url = parsed_url.set(database=test_db_name).render_as_string(hide_password=False)
+        admin_test_engine = create_engine(admin_test_url)
         with open("deploy/init-db.sql", encoding="utf-8") as f:
             init_sql = f.read()
-        with migrator_engine.connect() as conn:
+        with admin_test_engine.connect() as conn:
             conn.execute(text(init_sql))
             conn.commit()
+        admin_test_engine.dispose()
 
-        # 2. Build schema ONLY from Alembic migrations
+        # 2. Build schema ONLY from Alembic migrations as migrator
+        migrator_url = parsed_url.set(
+            username="migrator", password="migrator_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        migrator_engine = create_engine(migrator_url)
+
         alembic_cfg = Config("alembic.ini")
         alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
         command.upgrade(alembic_cfg, "head")
 
         # 3. Connect as app_rw
-        app_rw_url = f"postgresql+psycopg://app_rw:app_rw_secure_pass@localhost:5432/{test_db_name}"
+        app_rw_url = parsed_url.set(
+            username="app_rw", password="app_rw_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
         app_rw_engine = create_engine(app_rw_url)
 
         protected_tables = [
@@ -155,8 +164,78 @@ def test_alembic_postgres_app_rw_append_only_enforcement() -> None:
                 rw_conn.rollback()
 
         app_rw_engine.dispose()
-    finally:
         migrator_engine.dispose()
+    finally:
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+                if conn.dialect.server_version_info >= (13,)
+                else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+            )
+        admin_engine.dispose()
+
+
+def test_alembic_postgres_upgrade_downgrade_upgrade() -> None:
+    """Test alembic upgrade head, downgrade base, upgrade head on PostgreSQL 16."""
+    test_db_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_db_url or "postgresql" not in test_db_url:
+        pytest.fail("TEST_DATABASE_URL environment variable must be set to a valid PostgreSQL URL")
+
+    parsed_url = make_url(test_db_url)
+    admin_db_url = parsed_url.set(database="postgres").render_as_string(hide_password=False)
+    try:
+        admin_engine = create_engine(admin_db_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        pytest.fail(f"PostgreSQL server unreachable at {admin_db_url}: {exc}")
+
+    test_db_name = "test_alembic_up_down_up_ci"
+    with admin_engine.connect() as conn:
+        conn.execute(
+            text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+            if conn.dialect.server_version_info >= (13,)
+            else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+        )
+        conn.execute(text(f"CREATE DATABASE {test_db_name};"))
+
+    try:
+        admin_test_url = parsed_url.set(database=test_db_name).render_as_string(hide_password=False)
+        admin_test_engine = create_engine(admin_test_url)
+        with open("deploy/init-db.sql", encoding="utf-8") as f:
+            init_sql = f.read()
+        with admin_test_engine.connect() as conn:
+            conn.execute(text(init_sql))
+            conn.commit()
+        admin_test_engine.dispose()
+
+        migrator_url = parsed_url.set(
+            username="migrator", password="migrator_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        migrator_engine = create_engine(migrator_url)
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+
+        # 1. Upgrade to head
+        command.upgrade(alembic_cfg, "head")
+        inspector = inspect(migrator_engine)
+        assert "audit_log" in inspector.get_table_names()
+        assert "claims" in inspector.get_table_names()
+
+        # 2. Downgrade to base (must cleanly drop triggers including trg_no_truncate_*)
+        command.downgrade(alembic_cfg, "base")
+        inspector_after = inspect(migrator_engine)
+        remaining = set(inspector_after.get_table_names()) - {"alembic_version"}
+        assert not remaining, f"Tables remaining after downgrade: {remaining}"
+
+        # 3. Upgrade back to head
+        command.upgrade(alembic_cfg, "head")
+        inspector_final = inspect(migrator_engine)
+        assert "audit_log" in inspector_final.get_table_names()
+        assert "claims" in inspector_final.get_table_names()
+
+        migrator_engine.dispose()
+    finally:
         with admin_engine.connect() as conn:
             conn.execute(
                 text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")

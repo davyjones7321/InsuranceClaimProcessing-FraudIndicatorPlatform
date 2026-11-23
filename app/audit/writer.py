@@ -268,15 +268,13 @@ def write_audit_log(
             lock_id = chain_key_to_advisory_id(chain_key)
             db.execute(text("SELECT pg_advisory_xact_lock(:lid)"), {"lid": lock_id})
 
-        # 3. Authoritatively query head row from AuditLog under lock
+        # 3. Authoritatively query head row from AuditLog under advisory lock
         latest_audit_stmt = (
             select(AuditLog.seq, AuditLog.hash)
             .where(AuditLog.chain_key == chain_key)
             .order_by(AuditLog.seq.desc())
             .limit(1)
         )
-        if is_pg:
-            latest_audit_stmt = latest_audit_stmt.with_for_update()
 
         last_row = db.execute(latest_audit_stmt).first()
 

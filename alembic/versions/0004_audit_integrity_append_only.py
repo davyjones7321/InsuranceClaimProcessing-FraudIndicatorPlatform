@@ -163,6 +163,7 @@ def downgrade() -> None:
     if is_pg:
         for tbl in PROTECTED_TABLES:
             op.execute(f"DROP TRIGGER IF EXISTS trg_no_update_delete_{tbl} ON {tbl};")
+            op.execute(f"DROP TRIGGER IF EXISTS trg_no_truncate_{tbl} ON {tbl};")
         op.execute("DROP FUNCTION IF EXISTS trg_prevent_update_delete_truncate();")
     else:
         for tbl in PROTECTED_TABLES:

@@ -1,14 +1,19 @@
 """Integration tests for Claim Registration, reference generation, and object-level scoping."""
 
+import os
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
 from app.db.models import (
     AuditLog,
     Coverage,
@@ -430,3 +435,141 @@ def test_claim_listing_object_level_isolation(
     claim_id = res_a.json()[0]["id"]
     res_staff_detail = client.get(f"/api/claims/{claim_id}", headers=hdr_staff)
     assert res_staff_detail.status_code == 403
+
+
+def test_staging_smoke_claim_registration_app_rw() -> None:
+    """Staging smoke test verifying that an application running as restricted app_rw
+    role can successfully register a claim on a migrated PostgreSQL database.
+    """
+    test_db_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_db_url or "postgresql" not in test_db_url:
+        pytest.skip("PostgreSQL TEST_DATABASE_URL required for staging app_rw smoke test")
+
+    parsed_url = make_url(test_db_url)
+    admin_db_url = parsed_url.set(database="postgres").render_as_string(hide_password=False)
+    try:
+        admin_engine = create_engine(admin_db_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        pytest.fail(f"PostgreSQL server unreachable at {admin_db_url}: {exc}")
+
+    test_db_name = "test_smoke_claim_app_rw_ci"
+    with admin_engine.connect() as conn:
+        conn.execute(
+            text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+            if conn.dialect.server_version_info >= (13,)
+            else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+        )
+        conn.execute(text(f"CREATE DATABASE {test_db_name};"))
+
+    try:
+        # 1. Run deploy/init-db.sql on empty database
+        admin_test_url = parsed_url.set(database=test_db_name).render_as_string(hide_password=False)
+        admin_test_engine = create_engine(admin_test_url)
+        with open("deploy/init-db.sql", encoding="utf-8") as f:
+            init_sql = f.read()
+        with admin_test_engine.connect() as conn:
+            conn.execute(text(init_sql))
+            conn.commit()
+        admin_test_engine.dispose()
+
+        # 2. Run alembic upgrade head as migrator
+        migrator_url = parsed_url.set(
+            username="migrator", password="migrator_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", migrator_url)
+        command.upgrade(alembic_cfg, "head")
+
+        # 3. Connect as app_rw
+        app_rw_url = parsed_url.set(
+            username="app_rw", password="app_rw_secure_pass", database=test_db_name
+        ).render_as_string(hide_password=False)
+        app_rw_engine = create_engine(app_rw_url)
+        AppRwSession = sessionmaker(bind=app_rw_engine, autocommit=False, autoflush=False)
+
+        with AppRwSession() as session:
+            # Seed minimal required customer, user, policy, coverage
+            cust = Customer(
+                id=uuid.uuid4(),
+                customer_no="CUST-SMOKE-001",
+                full_name="Smoke Test Customer",
+                dob=date(1990, 1, 1),
+                email="smoke.customer@example.com",
+                phone="+15550099",
+                address="Smoke Test Way",
+                state_region="CA",
+            )
+            user = User(
+                id=uuid.uuid4(),
+                email="smoke.customer@example.com",
+                password_hash=hash_password("SmokePass123456!"),
+                role=UserRole.CUSTOMER,
+                customer_id=cust.id,
+                is_active=True,
+            )
+            policy = Policy(
+                id=uuid.uuid4(),
+                policy_no="POL-SMOKE-001",
+                customer_id=cust.id,
+                product_type=ProductType.VEHICLE,
+                start_date=date.today() - timedelta(days=30),
+                end_date=date.today() + timedelta(days=335),
+                premium=Decimal("20000.00"),
+                sum_insured=Decimal("500000.00"),
+                status=PolicyStatus.ACTIVE,
+            )
+            cov = Coverage(
+                id=uuid.uuid4(),
+                policy_id=policy.id,
+                claim_category="COLLISION",
+                limit_scope=LimitScope.PER_CLAIM,
+                limit_amount=Decimal("300000.00"),
+                consumed_amount=Decimal("0.00"),
+                deductible=Decimal("2000.00"),
+                copay_percent=Decimal("0.00"),
+                waiting_period_days=0,
+                is_excluded=False,
+                limit_exceeded_behavior="CAP",
+            )
+            session.add_all([cust, user, policy, cov])
+            session.commit()
+
+            # Register claim as app_rw
+            from app.audit.verifier import verify_chain
+            from app.services.claim_service import ClaimService
+
+            claim_service = ClaimService(session)
+            claim = claim_service.register_claim(
+                policy_id=policy.id,
+                claim_category="COLLISION",
+                incident_date=date.today() - timedelta(days=2),
+                incident_location="Smoke Test Blvd",
+                incident_description="Staging smoke test registering claim as app_rw",
+                requested_amount=Decimal("25000.00"),
+                registered_by_id=user.id,
+                registered_by_role="customer",
+            )
+            session.commit()
+
+            assert claim.id is not None
+            assert claim.claim_ref.startswith("CLM-")
+            assert claim.status.value == "REGISTERED"
+
+            # Verify audit chain written by app_rw is cryptographically intact
+            chain_key = f"claim:{claim.id}"
+            res = verify_chain(session, chain_key, record_run=False)
+            assert res.is_valid is True
+            assert res.total_events >= 1
+            assert res.first_broken_seq is None
+
+        app_rw_engine.dispose()
+    finally:
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE);")
+                if conn.dialect.server_version_info >= (13,)
+                else text(f"DROP DATABASE IF EXISTS {test_db_name};")
+            )
+        admin_engine.dispose()
