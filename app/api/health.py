@@ -9,15 +9,15 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import AuditChainHead, Claim
 from app.db.session import get_db
-from app.observability import metrics_collector
 from app.domain.enums import UserRole
-from app.security.rbac import require_roles
+from app.observability import metrics_collector
 from app.rules.loader import (
     ACTIVE_RULESET,
     ACTIVE_RULESET_SHA256,
     DEFAULT_RULESET_PATH,
     load_ruleset,
 )
+from app.security.rbac import require_roles
 
 TARGET_ALEMBIC_HEAD = "0010_schema_alignment"
 

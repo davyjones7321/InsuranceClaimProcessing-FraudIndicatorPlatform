@@ -6,9 +6,8 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db.models import User
-from app.domain.enums import UserRole
-from app.security.session import create_session
 from app.observability import mask_pii
+from app.security.session import create_session
 from app.rules.loader import ACTIVE_RULESET_SHA256
 
 
