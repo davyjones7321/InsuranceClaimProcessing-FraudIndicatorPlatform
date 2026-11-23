@@ -129,12 +129,12 @@ jobs:
           AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
         run: |
           pytest --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --tb=short || {
-            echo "::group::Pytest Failures"
-            pytest --last-failed --tb=short -q
-            echo "::endgroup::"
-            pytest --last-failed --tb=line -q | head -n 30 | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            echo "### Pytest Failure Details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            pytest --last-failed --tb=short -q 2>&1 | head -n 100 >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            FAIL_SUMMARY=$(pytest --last-failed -q --tb=line 2>&1 | head -n 5 | tr '\r\n' ' ' || true)
+            echo "::error title=Failed Tests::$FAIL_SUMMARY"
             exit 1
           }
 
