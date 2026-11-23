@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.audit.writer import write_audit_log
 from app.config import settings
 from app.db.models import (
     Assessment,
@@ -57,6 +58,7 @@ from app.schemas.decisions import DecisionCreate
 from app.schemas.documents import DocumentReviewRequest
 from app.security.csrf import generate_csrf_token, validate_csrf_token
 from app.security.password import verify_password
+from app.security.rate_limit import AccountLockedError, check_rate_limit, record_login_attempt
 from app.security.rbac import (
     PermissionDeniedError,
     check_claim_access,
@@ -120,9 +122,18 @@ def login_action(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ) -> Response:
-    """Authenticate credentials and establish web session."""
-    user = db.scalars(select(User).where(User.email == email.strip().lower())).first()
-    if not user or not verify_password(user.password_hash, password) or not user.is_active:
+    """Authenticate credentials using the same controls as the API login."""
+    identifier = email.strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+
+    try:
+        check_rate_limit(db, identifier)
+    except AccountLockedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    user = db.scalars(select(User).where(User.email == identifier)).first()
+    if not user or not user.is_active or not verify_password(user.password_hash, password):
+        record_login_attempt(db, identifier, success=False)
         return templates.TemplateResponse(
             request=request,
             name="login.html",
@@ -136,7 +147,24 @@ def login_action(
             status_code=400,
         )
 
+    record_login_attempt(db, identifier, success=True)
+
+    # Rotate any existing browser session before issuing the authenticated session.
+    existing_session_id = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if existing_session_id:
+        delete_session(db, existing_session_id)
+
     session_id = create_session(db, user)
+    write_audit_log(
+        db=db,
+        action="USER_LOGIN",
+        entity_type="User",
+        entity_id=str(user.id),
+        actor_role=user.role.value,
+        actor_id=user.id,
+        event_data={"user_id": str(user.id), "role": user.role.value, "channel": "WEB"},
+        ip=client_ip,
+    )
     db.commit()
 
     response = RedirectResponse(url="/ui/claims", status_code=303)

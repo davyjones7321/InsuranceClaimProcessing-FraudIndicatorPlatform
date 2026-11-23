@@ -96,3 +96,65 @@ def test_api_login_success_and_logout(client: TestClient, sample_admin: User) ->
     # 4. Verify me fails after logout
     res_me_after = client.get("/api/auth/me", cookies=res.cookies)
     assert res_me_after.status_code == 401
+
+
+def test_ui_login_uses_database_lockout(client: TestClient, db_session: Session) -> None:
+    """UI login records failed attempts and enforces the shared API lockout threshold."""
+    from app.db.models import LoginAttempt
+
+    for _ in range(5):
+        response = client.post(
+            "/ui/login",
+            data={"email": "missing-ui-user@test.com", "password": "WrongPassword123!"},
+        )
+        assert response.status_code == 400
+
+    attempts = (
+        db_session.query(LoginAttempt)
+        .filter(LoginAttempt.identifier == "missing-ui-user@test.com")
+        .all()
+    )
+    assert len(attempts) == 5
+    assert all(not attempt.success for attempt in attempts)
+
+    locked_response = client.post(
+        "/ui/login",
+        data={"email": "missing-ui-user@test.com", "password": "WrongPassword123!"},
+    )
+    assert locked_response.status_code == 429
+
+
+def test_ui_login_rotates_session_and_writes_audit(
+    client: TestClient, db_session: Session, sample_admin: User
+) -> None:
+    """Successful UI login invalidates the prior session and writes a WEB login event."""
+    from app.audit.writer import _derive_chain_key
+    from app.db.models import AuditLog
+
+    old_session_id = create_session(db_session, sample_admin)
+    db_session.commit()
+    client.cookies.set("claim_session", old_session_id)
+
+    response = client.post(
+        "/ui/login",
+        data={"email": " ADMIN@test.com ", "password": "AdminSecurePassword123!"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    new_session_id = response.cookies.get("claim_session")
+    assert new_session_id
+    assert new_session_id != old_session_id
+    assert get_user_from_session(db_session, old_session_id) is None
+    assert get_user_from_session(db_session, new_session_id) is not None
+
+    login_event = (
+        db_session.query(AuditLog)
+        .filter(
+            AuditLog.chain_key == _derive_chain_key("User", str(sample_admin.id)),
+            AuditLog.action == "USER_LOGIN",
+        )
+        .order_by(AuditLog.seq.desc())
+        .first()
+    )
+    assert login_event is not None
+    assert login_event.event_data["channel"] == "WEB"
