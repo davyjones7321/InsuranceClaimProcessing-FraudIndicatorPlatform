@@ -31,9 +31,7 @@ def test_readyz_readiness_probe(client: TestClient) -> None:
     assert data["engine_version"] == settings.ENGINE_VERSION
 
 
-def test_metrics_endpoint(
-    client: TestClient, db_session, sample_admin: User
-) -> None:
+def test_metrics_endpoint(client: TestClient, db_session, sample_admin: User) -> None:
     session_id = create_session(db_session, sample_admin)
     db_session.commit()
     resp = client.get("/metrics", headers={"Authorization": f"Bearer {session_id}"})
