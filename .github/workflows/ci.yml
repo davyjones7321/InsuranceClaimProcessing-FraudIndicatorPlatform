@@ -46,7 +46,6 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       - name: SAST Security Audit (Bandit)
         run: |
@@ -166,7 +165,7 @@ jobs:
         with:
           image-ref: "insurance-claim-platform:${{ github.sha }}"
           format: "table"
-          exit-code: "0"
+          exit-code: "1"
           severity: "CRITICAL,HIGH"
 
       - name: OWASP ZAP Baseline Security Scan
@@ -176,7 +175,7 @@ jobs:
           if [ -n "$STAGING_URL" ]; then
             echo "Executing OWASP ZAP baseline scan against $STAGING_URL..."
             docker run -v $(pwd):/zap/wrk/:rw -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-              -t "$STAGING_URL" -r zap_report.html || true
+              -t "$STAGING_URL" -r zap_report.html
           else
             echo "::notice title=OWASP ZAP Status::OWASP ZAP baseline security scan: NOT RUN (STAGING_URL secret is not configured). Per Phase P7 requirement, unexecuted scans are reported as NOT RUN, never as passed."
           fi
