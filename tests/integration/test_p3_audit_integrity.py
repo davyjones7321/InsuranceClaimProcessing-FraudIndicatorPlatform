@@ -786,22 +786,21 @@ def test_postgres_app_rw_insert_wrong_hmac_flagged_by_verifier() -> None:
                 text(
                     """
                     INSERT INTO audit_log (
-                        id, chain_key, seq, prev_seq, prev_hash, hash,
+                        chain_key, seq, prev_seq, prev_hash, hash,
                         hash_version, key_id, event_id,
                         entity_type, entity_table, entity_id, entity_pk,
-                        op, action, actor_role, payload_canonical,
-                        occurred_at
+                        op, action, actor_role, payload_canonical, event_data,
+                        claim_id, occurred_at
                     ) VALUES (
-                        :id, :chain_key, :seq, :prev_seq, :prev_hash, :hash,
+                        :chain_key, :seq, :prev_seq, :prev_hash, :hash,
                         :hash_version, :key_id, :event_id,
                         :entity_type, :entity_table, :entity_id, :entity_pk,
-                        :op, :action, :actor_role, :payload_canonical,
-                        now()
+                        :op, :action, :actor_role, :payload_canonical, CAST(:event_data AS jsonb),
+                        :claim_id, now()
                     )
                     """
                 ),
                 {
-                    "id": uuid.uuid4(),
                     "chain_key": chain_key,
                     "seq": 2,
                     "prev_seq": 1,
@@ -817,7 +816,9 @@ def test_postgres_app_rw_insert_wrong_hmac_flagged_by_verifier() -> None:
                     "op": "INSERT",
                     "action": "ACTION_1",
                     "actor_role": "staff",
-                    "payload_canonical": "{}",
+                    "payload_canonical": '{"step":2}',
+                    "event_data": '{"step": 2}',
+                    "claim_id": claim_id,
                 },
             )
             session.commit()
