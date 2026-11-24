@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Claim {{ claim.claim_ref }} - ClaimFlow Platform{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2>Claim {{ claim.claim_ref }}</h2>
+            <span style="font-size: 0.85rem; color: var(--text-muted);">Registered on {{ claim.registered_on }}</span>
+        </div>
+        <div>
+            {% if claim.display_status in ['APPROVED', 'SETTLED'] %}
+                <span class="badge badge-success" style="font-size: 0.9rem;">{{ claim.display_status }}</span>
+            {% elif claim.display_status in ['REJECTED', 'VALIDATION_FAILED'] %}
+                <span class="badge badge-danger" style="font-size: 0.9rem;">{{ claim.display_status }}</span>
+            {% elif claim.display_status in ['UNDER_REVIEW', 'DOCUMENTS_PENDING', 'RISK_DATA_PENDING'] %}
+                <span class="badge badge-warning" style="font-size: 0.9rem;">{{ claim.display_status }}</span>
+            {% else %}
+                <span class="badge badge-info" style="font-size: 0.9rem;">{{ claim.display_status }}</span>
+            {% endif %}
+
+            {% if claim.legal_hold %}
+                <span class="badge badge-warning" style="margin-left: 0.5rem;">LEGAL HOLD ACTIVE</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div>
+            <h3>Claim Specifications</h3>
+            <table style="margin-top: 0.5rem;">
+                <tr><th style="width: 40%;">Policy Number</th><td>{{ claim.policy_no }}</td></tr>
+                <tr><th>Product Line</th><td>{{ claim.product_type }}</td></tr>
+                <tr><th>Coverage Category</th><td>{{ claim.claim_category }}</td></tr>
+                <tr><th>Incident Date</th><td>{{ claim.incident_date }}</td></tr>
+                <tr><th>Requested Amount</th><td><strong>INR {{ "{:,.2f}".format(claim.requested_amount) }}</strong></td></tr>
+                <tr><th>Incident Location</th><td>{{ claim.incident_location }}</td></tr>
+            </table>
+        </div>
+        <div>
+            <h3>Policy & Customer Context</h3>
+            <table style="margin-top: 0.5rem;">
+                <tr><th style="width: 40%;">Customer Reference</th><td>{{ claim.customer_no }}</td></tr>
+                <tr><th>Policy Status</th><td><span class="badge badge-success">{{ claim.policy_status }}</span></td></tr>
+                <tr><th>Total Sum Insured</th><td>INR {{ "{:,.2f}".format(claim.sum_insured) }}</td></tr>
+                <tr><th>Policy Effective Window</th><td>{{ claim.policy_start }} to {{ claim.policy_end }}</td></tr>
+                <tr><th>Coverage Remaining</th><td>INR {{ "{:,.2f}".format(claim.coverage_remaining) }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div style="margin-top: 1.5rem;">
+        <h3>Description</h3>
+        <p style="background: #f8fafc; padding: 1rem; border-radius: 0.375rem; border: 1px solid var(--border); margin-top: 0.5rem;">
+            {{ claim.incident_description }}
+        </p>
+    </div>
+
+    <!-- Action Bar by Role -->
+    <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <a href="/ui/claims/{{ claim.id }}/documents" class="btn btn-secondary">Manage Documents ({{ claim.documents|length }})</a>
+
+        {% if user.role in ['ASSESSOR', 'MANAGER'] and claim.status in ['READY_FOR_ASSESSMENT', 'ASSESSED', 'APPROVED', 'REJECTED'] %}
+            <a href="/ui/claims/{{ claim.id }}/assessment" class="btn btn-primary">Assessment Worksheet</a>
+        {% endif %}
+
+        {% if user.role in ['INVESTIGATOR', 'MANAGER'] and claim.status in ['UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETE', 'ESCALATED', 'APPROVED', 'REJECTED'] %}
+            <a href="/ui/claims/{{ claim.id }}/investigation" class="btn btn-warning">Investigation Console</a>
+        {% endif %}
+
+        {% if user.role in ['DECISION_MAKER', 'MANAGER'] and claim.status in ['ASSESSED', 'APPROVED', 'REJECTED'] %}
+            <a href="/ui/claims/{{ claim.id }}/decision" class="btn btn-primary">Human Decision Panel</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Role-Specific Risk Intelligence Panel -->
+{% if risk_data %}
+<div class="card">
+    <div class="card-header">
+        <h3>Risk Evaluation Review</h3>
+        <span class="badge badge-info">{{ risk_data.completeness_state }}</span>
+    </div>
+
+    {% if is_investigator_or_manager %}
+        <div class="alert alert-pilot" style="margin-bottom: 1rem;">
+            <strong>PILOT NOTICE:</strong> Indicator weights and score bands are unvalidated pilot values. Under Section 10 of governance policy, this evaluation serves as an investigative aid only and must never be used to automate denial or adverse claim determination.
+        </div>
+        <p style="margin-bottom: 1rem;">
+            Overall Composite Score: <strong>{{ risk_data.score if risk_data.score is not none else 'N/A' }}</strong>
+            | Evaluation Band: <span class="badge badge-neutral">{{ risk_data.score_category }}</span>
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Rule Code</th>
+                    <th>Indicator Name</th>
+                    <th>Weight</th>
+                    <th>Status</th>
+                    <th>Trigger Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ind in risk_data.indicators %}
+                <tr>
+                    <td><code>{{ ind.rule_id }}</code></td>
+                    <td>{{ ind.name }}</td>
+                    <td>{{ ind.weight }}</td>
+                    <td>
+                        {% if ind.triggered %}
+                            <span class="badge badge-warning">Triggered</span>
+                        {% elif ind.skipped %}
+                            <span class="badge badge-neutral">Skipped</span>
+                        {% else %}
+                            <span class="badge badge-success">Clean</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ ind.reason or 'Normal variance within threshold' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% elif is_assessor %}
+        <div class="alert alert-info">
+            <p>Risk Band: <strong>{{ risk_data.score_category }}</strong> (Completeness: {{ risk_data.completeness_state }})</p>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                Per Decision D6, indicator evidence details are restricted to investigation and management roles.
+            </p>
+        </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Documents Overview -->
+<div class="card">
+    <div class="card-header">
+        <h3>Attached Verification Documents</h3>
+        <a href="/ui/claims/{{ claim.id }}/documents" class="btn btn-secondary btn-sm">Upload / Review Documents</a>
+    </div>
+
+    {% if not claim.documents %}
+        <p style="color: var(--text-muted);">No verification documents have been attached to this claim yet.</p>
+    {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Document Code</th>
+                    <th>File Name</th>
+                    <th>Uploaded At</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in claim.documents %}
+                <tr>
+                    <td><code>{{ doc.doc_code }}</code></td>
+                    <td>{{ doc.file_name }}</td>
+                    <td>{{ doc.created_at }}</td>
+                    <td>
+                        {% if doc.status == 'VALID' %}
+                            <span class="badge badge-success">{{ doc.status }}</span>
+                        {% elif doc.status in ['INVALID', 'REJECTED'] %}
+                            <span class="badge badge-danger">{{ doc.status }}</span>
+                        {% elif doc.status == 'SUPERSEDED' %}
+                            <span class="badge badge-neutral">{{ doc.status }}</span>
+                        {% else %}
+                            <span class="badge badge-warning">{{ doc.status }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>
+{% endblock %}

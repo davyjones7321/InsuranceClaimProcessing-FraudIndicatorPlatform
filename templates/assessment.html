@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Assessment for {{ claim.claim_ref }} - ClaimFlow Platform{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2>Assessment Worksheet for Claim {{ claim.claim_ref }}</h2>
+            <span style="color: var(--text-muted); font-size: 0.875rem;">Loss assessment and payable calculation under policy terms</span>
+        </div>
+        <a href="/ui/claims/{{ claim.id }}" class="btn btn-secondary btn-sm">Back to Claim</a>
+    </div>
+
+    <div class="alert alert-pilot" style="margin-bottom: 1.5rem;">
+        <strong>POLICY CONTEXT:</strong> Coverage Category: <strong>{{ claim.claim_category }}</strong> | Remaining Limit: <strong>INR {{ "{:,.2f}".format(coverage.limit_amount - coverage.consumed_amount) }}</strong> | Limit Policy: <strong>{{ coverage.limit_exceeded_behavior }}</strong>
+    </div>
+
+    <!-- Existing Assessment -->
+    {% if existing_assessment %}
+    <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 0.375rem; padding: 1.25rem; margin-bottom: 2rem;">
+        <h3>Current Recorded Assessment</h3>
+        <table style="margin-top: 0.75rem;">
+            <tr><th>Assessed Loss</th><td>INR {{ "{:,.2f}".format(existing_assessment.assessed_loss) }}</td></tr>
+            <tr><th>Eligible Payable Amount</th><td><strong style="color: var(--primary); font-size: 1.1rem;">INR {{ "{:,.2f}".format(existing_assessment.eligible_amount) }}</strong></td></tr>
+            <tr><th>Calculation Ruleset</th><td><code>{{ existing_assessment.calculation_ruleset_version }}</code></td></tr>
+            <tr><th>Calculation Method Status</th><td><span class="badge badge-warning">{{ existing_assessment.calculation_spec_status }}</span></td></tr>
+            <tr><th>Assessed By</th><td>{{ existing_assessment.assessor_id }}</td></tr>
+            <tr><th>Remarks</th><td>{{ existing_assessment.remarks }}</td></tr>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Assessment Submission Form -->
+    {% if can_submit_assessment %}
+    <div style="border: 1px solid var(--border); border-radius: 0.375rem; padding: 1.5rem;">
+        <h3 style="margin-bottom: 1rem;">Record Assessment Calculation</h3>
+        <form action="/ui/claims/{{ claim.id }}/assessment" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="assessed_loss">Total Assessed Loss (INR)</label>
+                    <input type="number" id="assessed_loss" name="assessed_loss" min="0" step="0.01" required value="{{ claim.requested_amount }}">
+                </div>
+                <div class="form-group">
+                    <label for="deductible">Applied Deductible (INR)</label>
+                    <input type="number" id="deductible" name="deductible" min="0" step="0.01" value="{{ coverage.deductible }}" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="remarks">Assessor Assessment Remarks</label>
+                <textarea id="remarks" name="remarks" rows="3" required placeholder="Provide factual assessment rationale, verified invoices, and component adjustments..."></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Calculate and Save Assessment</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

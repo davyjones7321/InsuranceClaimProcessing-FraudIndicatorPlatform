@@ -1,0 +1,13 @@
+=== IMPORT LINTER ===
+$ lint-imports --no-cache
+
+---------
+Contracts
+---------
+
+Analyzed 87 files, 388 dependencies.
+------------------------------------
+
+Engine determinism: engine must not import forbidden modules KEPT
+
+Contracts: 1 kept, 0 broken.

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Operational Analytics - ClaimFlow Platform{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2>Operational Analytics & Enterprise Portfolio</h2>
+            <span style="color: var(--text-muted); font-size: 0.875rem;">Aggregated claim volumes, payout financials, and operational indicators</span>
+        </div>
+    </div>
+
+    <!-- Top KPI cards -->
+    <div class="grid-3" style="margin-bottom: 2rem;">
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 0.375rem; padding: 1.25rem;">
+            <span style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase;">Total Registered Claims</span>
+            <div style="font-size: 2rem; font-weight: 700; color: var(--primary); margin-top: 0.25rem;">
+                {{ analytics.total_claims }}
+            </div>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 0.375rem; padding: 1.25rem;">
+            <span style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase;">Total Approved Payout</span>
+            <div style="font-size: 2rem; font-weight: 700; color: var(--success); margin-top: 0.25rem;">
+                INR {{ "{:,.0f}".format(analytics.total_approved_amount) }}
+            </div>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 0.375rem; padding: 1.25rem;">
+            <span style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase;">Average Approval Amount</span>
+            <div style="font-size: 2rem; font-weight: 700; color: var(--info); margin-top: 0.25rem;">
+                INR {{ "{:,.0f}".format(analytics.average_approval_amount) }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Breakdown -->
+    <h3>Claim Volume Distribution by Lifecycle Status</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Lifecycle Status</th>
+                <th>Volume</th>
+                <th>Share of Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stat, count in analytics.claims_by_status.items() %}
+            <tr>
+                <td><strong>{{ stat }}</strong></td>
+                <td>{{ count }}</td>
+                <td>{{ ((count / analytics.total_claims) * 100)|round(1) if analytics.total_claims > 0 else 0 }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div style="margin-top: 2rem; padding: 1rem; background: #f8fafc; border: 1px solid var(--border); border-radius: 0.375rem;">
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Governance & Data Minimization Note</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+            Per Decision D6, individual risk scores and investigative findings are strictly excluded from general analytics endpoints to prevent indirect profiling or leakage of unvalidated indicator evidence.
+        </p>
+    </div>
+</div>
+{% endblock %}

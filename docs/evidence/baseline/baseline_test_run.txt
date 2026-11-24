@@ -1,0 +1,242 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.15, pytest-9.2.0, pluggy-1.7.0 -- D:\edge-downloades\d\anudip-project\.venv\Scripts\python.exe
+hypothesis profile 'default'
+rootdir: D:\edge-downloades\d\anudip-project
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.16.0, hypothesis-6.170.15, asyncio-1.5.0, cov-7.1.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 137 items
+
+tests/engine/test_assessment_cap.py::test_health_assessment_cap_calculation PASSED [  0%]
+tests/engine/test_assessment_cap.py::test_health_capped_by_remaining_limit PASSED [  1%]
+tests/engine/test_assessment_cap.py::test_vehicle_assessment_cap_calculation PASSED [  2%]
+tests/engine/test_assessment_cap.py::test_property_assessment_cap_with_underinsurance PASSED [  2%]
+tests/engine/test_assessment_cap.py::test_property_overinsurance_capped_at_one PASSED [  3%]
+tests/engine/test_assessment_cap.py::test_loss_less_than_deductible_yields_zero PASSED [  4%]
+tests/engine/test_assessment_cap.py::test_negative_inputs_raise_value_error PASSED [  5%]
+tests/engine/test_fallback_product_type PASSED   [  5%]
+tests/engine/test_assessment_cap.py::test_property_zero_value_at_risk PASSED [  6%]
+tests/engine/test_assessment_cap.py::test_hypothesis_health_cap_invariants PASSED [  7%]
+tests/engine/test_forbidden_imports.py::test_engine_has_zero_forbidden_imports_or_calls PASSED [  8%]
+tests/engine/test_risk_engine.py::test_r01_repeated_claims_by_customer PASSED [  8%]
+tests/engine/test_risk_engine.py::test_r02_repeated_claims_on_policy PASSED [  9%]
+tests/engine/test_risk_engine.py::test_r03_high_amount_vs_limit PASSED   [ 10%]
+tests/engine/test_risk_engine.py::test_r04_unusual_amount_vs_peers PASSED [ 10%]
+tests/engine/test_risk_engine.py::test_r05_early_claim_window PASSED     [ 11%]
+tests/engine/test_risk_engine.py::test_r06_late_in_policy_claim PASSED   [ 12%]
+tests/engine/test_risk_engine.py::test_r07_duplicate_suspicion PASSED    [ 13%]
+tests/engine/test_risk_engine.py::test_r08_inconsistent_document_data PASSED [ 13%]
+tests/engine/test_risk_engine.py::test_r09_late_filing PASSED            [ 14%]
+tests/engine/test_risk_engine.py::test_r10_round_number_amount PASSED    [ 15%]
+tests/engine/test_risk_engine.py::test_risk_score_categories_and_routing PASSED [ 16%]
+tests/engine/test_risk_engine.py::test_risk_score_capped_at_100 PASSED   [ 16%]
+tests/engine/test_risk_engine.py::test_risk_engine_determinism_under_shuffled_inputs PASSED [ 17%]
+tests/engine/test_risk_engine.py::test_hypothesis_risk_engine_invariants PASSED [ 18%]
+tests/engine/test_validation_engine.py::test_v01_policy_exists_and_owner_match PASSED [ 18%]
+tests/engine/test_validation_engine.py::test_v02_policy_active PASSED    [ 19%]
+tests/engine/test_validation_engine.py::test_v03_incident_in_policy_period PASSED [ 20%]
+tests/engine/test_validation_engine.py::test_v04_valid_incident_date PASSED [ 21%]
+tests/engine/test_validation_engine.py::test_v05_filing_window PASSED    [ 21%]
+tests/engine/test_validation_engine.py::test_v07_coverage_exists_and_not_excluded PASSED [ 22%]
+tests/engine/test_validation_engine.py::test_v08_policy_exclusion_check PASSED [ 23%]
+tests/engine/test_validation_engine.py::test_v09_waiting_period_satisfied PASSED [ 24%]
+tests/engine/test_validation_engine.py::test_v10_positive_requested_amount PASSED [ 24%]
+tests/engine/test_validation_engine.py::test_v11_coverage_limit_policy_behaviors PASSED [ 25%]
+tests/engine/test_validation_engine.py::test_v12_mandatory_fields_present PASSED [ 26%]
+tests/engine/test_validation_engine.py::test_v13_document_lifecycle_and_blocked_docs PASSED [ 27%]
+tests/engine/test_validation_engine.py::test_multiple_failures_lead_to_fail_not_blocked_docs PASSED [ 27%]
+tests/engine/test_validation_engine.py::test_engine_determinism_under_shuffled_inputs PASSED [ 28%]
+tests/engine/test_validation_engine.py::test_hypothesis_engine_invariants PASSED [ 29%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_01_customer_registration PASSED [ 29%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_02_mandatory_documents_pending PASSED [ 30%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_03_all_validation_rules_failing_examples PASSED [ 31%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_04_clean_claim_no_investigation_lifecycle PASSED [ 32%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_05_high_risk_routes_to_investigation_no_fraud_wording PASSED [ 32%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_06_no_code_path_converts_risk_score_to_rejection PASSED [ 33%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_07_decision_rules_and_separation_of_duties PASSED [ 34%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_08_amounts_boundary_checks PASSED [ 35%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_09_audit_tamper_detection PASSED [ 35%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_10_engine_determinism_replay PASSED [ 36%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_11_cross_customer_access_blocked PASSED [ 37%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_12_analytics_aggregates PASSED [ 37%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_13_backup_restore_drill PASSED [ 38%]
+tests/integration/test_acceptance_checklist.py::test_acceptance_14_ruleset_and_schema_integrity PASSED [ 39%]
+tests/integration/test_analytics.py::test_manager_analytics_dashboard_metrics PASSED [ 40%]
+tests/integration/test_analytics.py::test_analytics_dashboard_filtering PASSED [ 40%]
+tests/integration/test_analytics.py::test_analytics_csv_export PASSED    [ 41%]
+tests/integration/test_analytics.py::test_analytics_rbac_restrictions PASSED [ 42%]
+tests/integration/test_assessment_lifecycle.py::test_successful_assessment_and_state_transition PASSED [ 43%]
+tests/integration/test_assessment_lifecycle.py::test_assessment_eligible_amount_above_cap_blocked PASSED [ 43%]
+tests/integration/test_assessment_lifecycle.py::test_assessment_blocked_if_open_investigation PASSED [ 44%]
+tests/integration/test_assessment_lifecycle.py::test_assessment_separation_of_duties_claimant_blocked PASSED [ 45%]
+tests/integration/test_assessment_lifecycle.py::test_assessment_separation_of_duties_investigator_blocked PASSED [ 45%]
+tests/integration/test_audit.py::test_audit_chain_creation_and_verification PASSED [ 46%]
+tests/integration/test_audit.py::test_audit_tamper_detection_modifying_event_data PASSED [ 47%]
+tests/integration/test_audit.py::test_audit_tamper_detection_sequence_gap PASSED [ 48%]
+tests/integration/test_audit.py::test_audit_strictly_rejects_floats PASSED [ 48%]
+tests/integration/test_audit.py::test_audit_strictly_rejects_sensitive_pii PASSED [ 49%]
+tests/integration/test_claim_registration.py::test_customer_registers_claim_successfully PASSED [ 50%]
+tests/integration/test_claim_registration.py::test_customer_cannot_register_claim_on_other_customer_policy PASSED [ 51%]
+tests/integration/test_claim_registration.py::test_staff_registers_claim_on_behalf_of_customer PASSED [ 51%]
+tests/integration/test_claim_registration.py::test_claim_registration_validation_guards PASSED [ 52%]
+tests/integration/test_claim_registration.py::test_idempotent_claim_double_submit PASSED [ 53%]
+tests/integration/test_claim_registration.py::test_claim_listing_object_level_isolation PASSED [ 54%]
+tests/integration/test_decision_lifecycle.py::test_decision_with_open_investigation_blocked PASSED [ 54%]
+tests/integration/test_decision_lifecycle.py::test_decision_remarks_minimum_length_enforced PASSED [ 55%]
+tests/integration/test_decision_lifecycle.py::test_rejected_decision_requires_allowed_reason_codes PASSED [ 56%]
+tests/integration/test_decision_lifecycle.py::test_approval_above_eligible_amount_blocked PASSED [ 56%]
+tests/integration/test_decision_lifecycle.py::test_separation_of_duties_same_user_assessor_and_decider_blocked PASSED [ 57%]
+tests/integration/test_decision_lifecycle.py::test_separation_of_duties_same_user_investigator_and_decider_blocked PASSED [ 58%]
+tests/integration/test_decision_lifecycle.py::test_separation_of_duties_claimant_decider_blocked PASSED [ 59%]
+tests/integration/test_decision_lifecycle.py::test_manager_threshold_enforced PASSED [ 59%]
+tests/integration/test_decision_lifecycle.py::test_successful_rejection_and_info_requested_lifecycle PASSED [ 60%]
+tests/integration/test_document_lifecycle.py::test_document_upload_success_and_sha256 PASSED [ 61%]
+tests/integration/test_document_lifecycle.py::test_document_upload_security_rejects_disallowed_mime_types PASSED [ 62%]
+tests/integration/test_document_lifecycle.py::test_document_upload_rejects_oversized_files PASSED [ 62%]
+tests/integration/test_document_lifecycle.py::test_document_superseding_lifecycle PASSED [ 63%]
+tests/integration/test_document_lifecycle.py::test_document_review_by_assessor_or_staff PASSED [ 64%]
+tests/integration/test_document_lifecycle.py::test_sensitive_document_access_control_and_view_logging PASSED [ 64%]
+tests/integration/test_health_and_metrics.py::test_healthz_liveness_probe PASSED [ 65%]
+tests/integration/test_health_and_metrics.py::test_readyz_readiness_probe PASSED [ 66%]
+tests/integration/test_health_and_metrics.py::test_metrics_endpoint PASSED [ 67%]
+tests/integration/test_health_and_metrics.py::test_request_id_middleware_generates_and_propagates PASSED [ 67%]
+tests/integration/test_health_and_metrics.py::test_security_headers_present PASSED [ 68%]
+tests/integration/test_health_and_metrics.py::test_pii_masking_utility PASSED [ 69%]
+tests/integration/test_import_service.py::test_json_batch_import_dry_run_and_commit PASSED [ 70%]
+tests/integration/test_import_service.py::test_csv_import_customers_and_policies PASSED [ 70%]
+tests/integration/test_investigation_lifecycle.py::test_investigator_assignment PASSED [ 71%]
+tests/integration/test_investigation_lifecycle.py::test_findings_and_completion_lifecycle PASSED [ 72%]
+tests/integration/test_investigation_lifecycle.py::test_investigation_escalation_and_manager_resolution PASSED [ 72%]
+tests/integration/test_master_data_crud.py::test_customer_crud_and_rbac PASSED [ 73%]
+tests/integration/test_master_data_crud.py::test_policy_and_coverage_crud PASSED [ 74%]
+tests/integration/test_master_data_crud.py::test_required_document_types_crud PASSED [ 75%]
+tests/integration/test_migrations.py::test_alembic_migrations_upgrade_and_downgrade PASSED [ 75%]
+tests/integration/test_object_level_access.py::test_customer_cannot_view_other_customer_profile PASSED [ 76%]
+tests/integration/test_object_level_access.py::test_customer_cannot_list_all_customers PASSED [ 77%]
+tests/integration/test_object_level_access.py::test_customer_cannot_view_other_customer_policy PASSED [ 78%]
+tests/integration/test_object_level_access.py::test_customer_policy_list_is_strictly_scoped_to_self PASSED [ 78%]
+tests/integration/test_object_level_access.py::test_customer_cannot_view_other_policy_coverages_or_exclusions PASSED [ 79%]
+tests/integration/test_replay.py::test_replay_script_reproduces_all_evaluations PASSED [ 80%]
+tests/integration/test_risk_service.py::test_clean_claim_routes_to_ready_for_assessment PASSED [ 81%]
+tests/integration/test_risk_service.py::test_flagged_claim_routes_to_under_investigation_and_creates_record PASSED [ 81%]
+tests/integration/test_risk_service.py::test_risk_evaluation_api_endpoints_and_scoping PASSED [ 82%]
+tests/integration/test_risk_service.py::test_deterministic_replay_on_risk_evaluation PASSED [ 83%]
+tests/integration/test_seed.py::test_seed_database_creates_all_expected_records PASSED [ 83%]
+tests/integration/test_seed.py::test_seed_database_is_idempotent PASSED  [ 84%]
+tests/integration/test_seed.py::test_seed_database_refuses_production PASSED [ 85%]
+tests/integration/test_state_machine_pipeline.py::test_state_machine_transition_and_optimistic_locking PASSED [ 86%]
+tests/integration/test_state_machine_pipeline.py::test_illegal_state_transition_rejected PASSED [ 86%]
+tests/integration/test_state_machine_pipeline.py::test_documents_pending_to_rejected_requires_remarks_and_reason_code PASSED [ 87%]
+tests/integration/test_validation_service.py::test_validation_missing_documents_blocks_claim PASSED [ 88%]
+tests/integration/test_validation_service.py::test_document_upload_and_review_unblocks_claim_validation PASSED [ 89%]
+tests/integration/test_validation_service.py::test_validation_failure_on_business_rule_violation PASSED [ 89%]
+tests/integration/test_validation_service.py::test_validation_api_endpoints_and_scoping PASSED [ 90%]
+tests/integration/test_validation_service.py::test_deterministic_replay_on_persisted_run PASSED [ 91%]
+tests/integration/test_validation_service.py::test_run_replay_cli_on_database PASSED [ 91%]
+tests/security/test_auth.py::test_password_min_length_enforcement PASSED [ 92%]
+tests/security/test_auth.py::test_login_rate_limiting_lockout PASSED     [ 93%]
+tests/security/test_auth.py::test_database_backed_session_lifecycle PASSED [ 94%]
+tests/security/test_auth.py::test_csrf_token_validation PASSED           [ 94%]
+tests/security/test_auth.py::test_api_login_success_and_logout PASSED    [ 95%]
+tests/security/test_forbidden_wording.py::test_engine_and_api_contain_zero_forbidden_accusatory_wording PASSED [ 96%]
+tests/security/test_no_rejection_from_risk.py::test_pure_risk_engine_never_outputs_rejection PASSED [ 97%]
+tests/security/test_no_rejection_from_risk.py::test_ast_risk_service_never_transitions_to_rejected PASSED [ 97%]
+tests/security/test_route_permissions.py::test_every_route_declares_permission_or_is_explicitly_public PASSED [ 98%]
+tests/unit/test_state_machine.py::test_exhaustive_state_transitions PASSED [ 99%]
+tests/unit/test_state_machine.py::test_final_states_have_no_outgoing_transitions PASSED [100%]
+
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  D:\edge-downloades\d\anudip-project\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/integration/test_document_lifecycle.py::test_document_upload_rejects_oversized_files
+  D:\edge-downloades\d\anudip-project\.venv\Lib\site-packages\fastapi\routing.py:381: StarletteDeprecationWarning: 'HTTP_413_REQUEST_ENTITY_TOO_LARGE' is deprecated. Use 'HTTP_413_CONTENT_TOO_LARGE' instead.
+    return await dependant.call(**values)
+
+tests/integration/test_migrations.py::test_alembic_migrations_upgrade_and_downgrade
+tests/integration/test_migrations.py::test_alembic_migrations_upgrade_and_downgrade
+tests/integration/test_migrations.py::test_alembic_migrations_upgrade_and_downgrade
+  D:\edge-downloades\d\anudip-project\.venv\Lib\site-packages\alembic\config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+tests/integration/test_state_machine_pipeline.py::test_illegal_state_transition_rejected
+  D:\edge-downloades\d\anudip-project\.venv\Lib\site-packages\fastapi\telemetry\_api.py:244: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    return function(**arguments)
+
+tests/security/test_auth.py::test_api_login_success_and_logout
+tests/security/test_auth.py::test_api_login_success_and_logout
+tests/security/test_auth.py::test_api_login_success_and_logout
+  D:\edge-downloades\d\anudip-project\.venv\Lib\site-packages\starlette\testclient.py:518: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.13.15-final-0 _______________
+
+Name                                    Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------
+app\__init__.py                             1      0   100%
+app\analytics\__init__.py                   0      0   100%
+app\analytics\service.py                  169      7    96%   63-64, 66-67, 71, 167, 443
+app\api\__init__.py                         3      0   100%
+app\api\analytics.py                       19      0   100%
+app\api\auth.py                            59      4    93%   57-58, 67-68
+app\api\claims.py                         271     83    69%   139-141, 146, 148, 179, 208-214, 286-287, 312-324, 366, 395-396, 424-425, 455, 484, 489-490, 519-520, 550, 579, 584-585, 619-620, 645-650, 680-685, 710-715, 731-738, 763-768, 793-798, 828-829, 863-864, 889-894
+app\api\coverages.py                       73      6    92%   42, 93, 124, 164, 207, 239
+app\api\customers.py                       50      2    96%   115, 137
+app\api\health.py                          42      9    79%   38-39, 48-55, 64-65
+app\api\master_data_import.py              17      0   100%
+app\api\policies.py                        77      9    88%   36, 44, 168-169, 172, 174, 176, 205, 241
+app\api\required_documents.py              51      4    92%   44, 106, 132, 170
+app\audit\__init__.py                       3      0   100%
+app\audit\verifier.py                      70     28    60%   40-47, 57, 64-69, 91, 102-109, 112-117, 121-126, 129, 144-154
+app\audit\writer.py                        72      1    99%   163
+app\config.py                              58      5    91%   77, 85-86, 95-96
+app\db\__init__.py                          4      0   100%
+app\db\base.py                             14      0   100%
+app\db\models.py                          313      0   100%
+app\db\session.py                          15      8    47%   28-36
+app\domain\__init__.py                      4      0   100%
+app\domain\constants.py                     1      0   100%
+app\domain\enums.py                        88      0   100%
+app\domain\state_machine.py                12      0   100%
+app\engine\__init__.py                      4      0   100%
+app\engine\assessment_cap.py               49      0   100%
+app\engine\risk.py                        150      7    95%   21, 155-156, 211, 251, 298, 414
+app\engine\types.py                       155      0   100%
+app\engine\validation.py                  175      5    97%   513, 515, 565, 584-585
+app\main.py                                54      2    96%   29, 80
+app\observability.py                       40      2    95%   20, 57
+app\rules\__init__.py                       2      0   100%
+app\rules\loader.py                        37      8    78%   19, 24-25, 33-34, 37, 50, 59
+app\schemas\__init__.py                     9      0   100%
+app\schemas\analytics.py                   61      0   100%
+app\schemas\assessments.py                 26      0   100%
+app\schemas\claims.py                      52      0   100%
+app\schemas\decisions.py                   21      0   100%
+app\schemas\documents.py                   37      2    95%   26, 28
+app\schemas\investigations.py              34      0   100%
+app\schemas\master_data.py                131      0   100%
+app\schemas\risk.py                        27      0   100%
+app\schemas\validation.py                  23      0   100%
+app\security\__init__.py                    6      0   100%
+app\security\csrf.py                       33     11    67%   25, 32, 39-40, 45-57
+app\security\password.py                   22      7    68%   12, 28-29, 34-37
+app\security\rate_limit.py                 18      0   100%
+app\security\rbac.py                       80     21    74%   83, 90-93, 99, 119-120, 126-148
+app\security\session.py                    34      3    91%   33, 48, 56
+app\services\__init__.py                    9      0   100%
+app\services\assessment_service.py         74     11    85%   53, 57, 67, 83, 104, 196-207
+app\services\claim_service.py             143     19    87%   72, 76-79, 100, 123, 127-130, 140, 228, 297, 308, 342, 351, 386, 390, 404
+app\services\decision_service.py           98     16    84%   68, 72, 82, 99, 128, 134, 144, 186, 207-212, 269-280
+app\services\document_storage.py           58      9    84%   62, 88, 98, 108-113
+app\services\import_service.py            233    109    53%   83-84, 91-174, 202-203, 244-245, 268-277, 294-295, 323-335, 353-354, 365-368, 391-398, 415-457
+app\services\investigation_service.py     128     27    79%   53, 64, 70, 72, 97-121, 132, 138, 180, 188, 196, 247, 263, 319-331
+app\services\risk_service.py              101      4    96%   207, 211, 225, 384
+app\services\validation_service.py        103      5    95%   93, 193, 197, 235, 354
+app\web\__init__.py                         0      0   100%
+---------------------------------------------------------------------
+TOTAL                                    3713    434    88%
+====================== 137 passed, 9 warnings in 57.83s =======================
