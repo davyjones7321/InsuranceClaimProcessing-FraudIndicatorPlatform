@@ -50,11 +50,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup and shutdown lifecycle events."""
     # 1. Validate production configuration (Phase P8 Task 4)
     if settings.ENV == "production":
-        validate_calculation_spec_activation(
-            environment=settings.ENV,
-            calculation_spec_status=CALCULATION_SPEC_STATUS,
-            risk_acceptance_ref=settings.CALCULATION_SPEC_RISK_ACCEPTANCE_REF,
-        )
         if settings.DEBUG:
             raise RuntimeError("DEBUG must not be True in production environment")
         if len(settings.SECRET_KEY) < 32 or "dev-" in settings.SECRET_KEY:
@@ -65,6 +60,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             raise RuntimeError(
                 "Production AUDIT_HMAC_KEY must be a strong secret of at least 32 characters"
             )
+        validate_calculation_spec_activation(
+            environment=settings.ENV,
+            calculation_spec_status=CALCULATION_SPEC_STATUS,
+            risk_acceptance_ref=settings.CALCULATION_SPEC_RISK_ACCEPTANCE_REF,
+        )
 
     # 2. Validate ruleset hash and schema
     try:
