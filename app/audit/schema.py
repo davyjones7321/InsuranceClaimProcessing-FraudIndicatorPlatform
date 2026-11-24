@@ -64,6 +64,7 @@ FORBIDDEN_FREE_TEXT_KEYS: frozenset[str] = frozenset(
 ACTION_SCHEMAS: dict[str, frozenset[str]] = {
     # Authentication & User
     "USER_LOGIN": frozenset({"user_id", "role", "channel"}),
+    "USER_REGISTERED": frozenset({"user_id", "role", "channel"}),
     "LOGIN": frozenset({"user_id", "role", "channel"}),
     "USER_LOGOUT": frozenset({"user_id"}),
     "LOGOUT": frozenset({"user_id"}),

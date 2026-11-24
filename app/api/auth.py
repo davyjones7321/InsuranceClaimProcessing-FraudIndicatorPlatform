@@ -12,11 +12,13 @@ from app.config import settings
 from app.db.models import User
 from app.db.session import get_db
 from app.domain.enums import UserRole
+from app.schemas.auth import RegistrationRequest
 from app.security.csrf import generate_csrf_token
 from app.security.password import verify_password
 from app.security.rate_limit import AccountLockedError, check_rate_limit, record_login_attempt
 from app.security.rbac import get_current_user
 from app.security.session import create_session, delete_session
+from app.services.registration_service import RegistrationConflictError, register_customer
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -38,6 +40,33 @@ class LoginResponse(BaseModel):
     user: UserResponse
     csrf_token: str
     session_id: str
+
+
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a customer account",
+)
+def register(
+    payload: RegistrationRequest,
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    """Create a customer account. Public registration cannot assign staff roles."""
+    try:
+        user = register_customer(db, payload)
+        db.commit()
+        db.refresh(user)
+    except RegistrationConflictError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        customer_id=user.customer_id,
+        is_active=user.is_active,
+    )
 
 
 @router.post("/login", response_model=LoginResponse, summary="Log in with email and password")
