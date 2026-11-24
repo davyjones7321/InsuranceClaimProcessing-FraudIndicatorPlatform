@@ -4,6 +4,12 @@ on:
   push:
     branches: [main, master, "hardening/*"]
   workflow_dispatch:
+    inputs:
+      deploy_staging:
+        description: "Deploy to staging (requires configured staging database and server secrets)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -54,7 +60,10 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy-staging:
-    name: Deploy to Staging (Automated)
+    name: Deploy to Staging (Manual Opt-In)
+    # Pushes build and publish the image only. Staging runs only when explicitly
+    # requested through workflow_dispatch after staging infrastructure is configured.
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_staging == true
     runs-on: ubuntu-latest
     needs: build
     environment:

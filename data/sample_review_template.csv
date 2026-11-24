@@ -1,6 +1,0 @@
-claim_ref_or_id,product,value_band,settled_amount,classification,reason_code,reviewer,adjudicated_result,remarks
-CLM-SAMPLE-0001,HEALTH,BAND_1,15000.00,FIT,,REV_01,FIT,Single inpatient room rent and pharmacy claim
-CLM-SAMPLE-0002,VEHICLE,BAND_2,65500.00,FIT,,REV_01,FIT,Parts replacement and labour with standard deductible
-CLM-SAMPLE-0003,PROPERTY,BAND_3,475000.00,FIT,,REV_02,FIT,Warehouse stock loss with coinsurance underinsurance
-CLM-SAMPLE-0004,VEHICLE,BAND_2,95000.00,SPLITTABLE,,REV_01,SPLITTABLE,Accident with own damage and third party property - splittable into two linked claims
-CLM-SAMPLE-0005,HEALTH,BAND_3,250000.00,NO-FIT,SHARED_AGGREGATE_DEDUCTIBLE,REV_02,NO-FIT,Family floater policy with combined pooled deductible
