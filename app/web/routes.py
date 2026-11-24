@@ -55,8 +55,8 @@ from app.domain.enums import (
 )
 from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.types import AssessmentInput
-from app.schemas.auth import RegistrationRequest
 from app.schemas.assessments import AssessmentCreate
+from app.schemas.auth import RegistrationRequest
 from app.schemas.claims import ClaimCreate
 from app.schemas.decisions import DecisionCreate
 from app.schemas.documents import DocumentReviewRequest
