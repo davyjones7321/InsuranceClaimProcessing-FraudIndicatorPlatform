@@ -72,6 +72,12 @@ def login(
 
     # Record successful login
     record_login_attempt(db, identifier, success=True)
+
+    # Session rotation: invalidate existing session if present (P1 task 7)
+    existing_cookie = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if existing_cookie:
+        delete_session(db, existing_cookie)
+
     session_id = create_session(db, user)
     csrf_token = generate_csrf_token(session_id)
 
@@ -85,15 +91,15 @@ def login(
         samesite="lax",
     )
 
-    # Audit login event (system chain)
+    # Audit login event (user chain)
     write_audit_log(
         db=db,
-        action="LOGIN",
+        action="USER_LOGIN",
         entity_type="User",
         entity_id=str(user.id),
         actor_role=user.role.value,
         actor_id=user.id,
-        event_data={"email": user.email, "role": user.role.value},
+        event_data={"user_id": str(user.id), "role": user.role.value, "channel": "WEB"},
         ip=client_ip,
     )
 
@@ -134,11 +140,12 @@ def logout(
     # Audit logout
     write_audit_log(
         db=db,
-        action="LOGOUT",
+        action="USER_LOGOUT",
         entity_type="User",
         entity_id=str(current_user.id),
         actor_role=current_user.role.value,
         actor_id=current_user.id,
+        event_data={"user_id": str(current_user.id)},
     )
 
     return {"message": "Logged out successfully"}

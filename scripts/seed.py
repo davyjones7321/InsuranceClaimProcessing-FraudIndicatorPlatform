@@ -334,6 +334,7 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                     copay_percent=Decimal("10.00"),
                     waiting_period_days=30,
                     is_excluded=False,
+                    limit_exceeded_behavior="CAP",
                 )
             )
             db.add(
@@ -348,6 +349,7 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                     copay_percent=Decimal("10.00"),
                     waiting_period_days=90,
                     is_excluded=False,
+                    limit_exceeded_behavior="CAP",
                 )
             )
             db.add(
@@ -381,6 +383,7 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                     copay_percent=Decimal("0.00"),
                     waiting_period_days=0,
                     is_excluded=False,
+                    limit_exceeded_behavior="CAP",
                 )
             )
             db.add(
@@ -395,6 +398,7 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                     copay_percent=Decimal("0.00"),
                     waiting_period_days=0,
                     is_excluded=False,
+                    limit_exceeded_behavior="CAP",
                 )
             )
             db.add(
@@ -428,6 +432,7 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                     copay_percent=Decimal("5.00"),
                     waiting_period_days=0,
                     is_excluded=False,
+                    limit_exceeded_behavior="CAP",
                 )
             )
             db.add(

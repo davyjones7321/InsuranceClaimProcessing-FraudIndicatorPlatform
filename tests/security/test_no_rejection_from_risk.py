@@ -71,14 +71,13 @@ def test_pure_risk_engine_never_outputs_rejection() -> None:
 
     risk_in = RiskInput(
         claim=claim,
-        customer_name="Alice",
-        customer_state_region="NY",
         policy=pol,
         coverage=cov,
         documents=(),
         historical_claims=history,
         peer_approved_amounts=(),
         evaluation_date=date(2026, 3, 20),
+        history_coverage={"HEALTH": date(2020, 1, 1)},
         ruleset=ACTIVE_RULESET,
     )
 

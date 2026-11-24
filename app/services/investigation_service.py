@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.audit.schema import hash_free_text
 from app.audit.writer import write_audit_log
 from app.db.base import utc_now
 from app.db.models import Claim, ClaimStatusHistory, Investigation, InvestigationFinding, User
@@ -37,8 +38,16 @@ class InvestigationService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_active_investigation(self, claim_id: uuid.UUID) -> Investigation:
+    def get_active_investigation(
+        self, claim_id: uuid.UUID, actor: User | None = None
+    ) -> Investigation:
         """Fetch the currently active (non-completed) investigation for a claim."""
+        if actor is not None:
+            claim = self.db.get(Claim, claim_id)
+            if not claim:
+                raise InvestigationServiceError(f"Claim '{claim_id}' not found")
+            check_claim_access(actor, claim, action="READ")
+
         stmt = (
             select(Investigation)
             .where(
@@ -60,6 +69,11 @@ class InvestigationService:
         actor: User,
     ) -> Investigation:
         """Assign an investigator to an active claim investigation (Manager or Admin only)."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
+        check_claim_access(actor, claim, action="MUTATE")
+
         if actor.role not in (UserRole.MANAGER, UserRole.ADMIN):
             raise InvestigationPermissionError(
                 f"Role '{actor.role.value}' is not authorized to assign investigators"
@@ -73,7 +87,7 @@ class InvestigationService:
                 f"User '{investigator_id}' does not have the 'investigator' role"
             )
 
-        investigation = self.get_active_investigation(claim_id)
+        investigation = self.get_active_investigation(claim_id, actor=actor)
         investigation.assigned_to = investigator_id
         investigation.assigned_by = actor.id
 
@@ -94,6 +108,11 @@ class InvestigationService:
 
     def start_review(self, claim_id: uuid.UUID, actor: User) -> Investigation:
         """Transition investigation from ASSIGNED to UNDER_REVIEW."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
+        check_claim_access(actor, claim, action="MUTATE")
+
         investigation = self.get_active_investigation(claim_id)
 
         # Actor must be assigned investigator, manager, or admin
@@ -131,6 +150,11 @@ class InvestigationService:
         if len(clean_text) < 5:
             raise InvestigationValidationError("Finding text must be at least 5 characters long")
 
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
+        check_claim_access(actor, claim, action="MUTATE")
+
         investigation = self.get_active_investigation(claim_id)
 
         if actor.role not in (UserRole.MANAGER, UserRole.ADMIN):
@@ -152,6 +176,7 @@ class InvestigationService:
             created_at=utc_now(),
         )
         self.db.add(finding)
+        investigation.findings.append(finding)
 
         write_audit_log(
             db=self.db,
@@ -161,7 +186,7 @@ class InvestigationService:
             actor_role=actor.role.value,
             actor_id=actor.id,
             claim_id=claim_id,
-            event_data={"finding_text": clean_text},
+            event_data={"findings_sha256": hash_free_text(clean_text)},
         )
 
         self.db.commit()
@@ -181,6 +206,11 @@ class InvestigationService:
                 "Escalation reason must be at least 5 characters long"
             )
 
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
+        check_claim_access(actor, claim, action="MUTATE")
+
         investigation = self.get_active_investigation(claim_id)
 
         if actor.role not in (UserRole.MANAGER, UserRole.ADMIN):
@@ -190,10 +220,6 @@ class InvestigationService:
                 )
 
         investigation.status = InvestigationStatus.ESCALATED
-
-        claim = self.db.get(Claim, claim_id)
-        if not claim:
-            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
 
         if claim.status == ClaimStatus.UNDER_INVESTIGATION:
             validate_transition(claim.status, ClaimStatus.ESCALATED)
@@ -218,7 +244,7 @@ class InvestigationService:
             actor_role=actor.role.value,
             actor_id=actor.id,
             claim_id=claim_id,
-            event_data={"reason": clean_reason},
+            event_data={"reason_sha256": hash_free_text(clean_reason)},
         )
 
         self.db.commit()
@@ -233,6 +259,11 @@ class InvestigationService:
         remarks: str | None = None,
     ) -> Investigation:
         """Complete an investigation, verify findings exist, and transition claim to READY_FOR_ASSESSMENT."""
+        claim = self.db.get(Claim, claim_id)
+        if not claim:
+            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
+        check_claim_access(actor, claim, action="MUTATE")
+
         investigation = self.get_active_investigation(claim_id)
 
         # Section 11: ESCALATED goes to a manager, who resolves it to COMPLETED
@@ -257,10 +288,6 @@ class InvestigationService:
         investigation.status = InvestigationStatus.COMPLETED
         investigation.outcome = outcome
         investigation.closed_at = utc_now()
-
-        claim = self.db.get(Claim, claim_id)
-        if not claim:
-            raise InvestigationServiceError(f"Claim '{claim_id}' not found")
 
         # Advance state machine:
         # Step 1: ESCALATED or UNDER_INVESTIGATION -> INVESTIGATION_COMPLETE
@@ -306,7 +333,7 @@ class InvestigationService:
             event_data={
                 "outcome": outcome.value,
                 "findings_count": len(investigation.findings),
-                "remarks": remarks,
+                "remarks_sha256": hash_free_text(remarks),
             },
         )
 

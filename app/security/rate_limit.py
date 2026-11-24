@@ -33,11 +33,11 @@ def check_rate_limit(db: Session, identifier: str) -> None:
 
 
 def record_login_attempt(db: Session, identifier: str, success: bool) -> None:
-    """Record a login attempt."""
+    """Record a login attempt transactionally."""
     attempt = LoginAttempt(
         identifier=identifier,
         attempted_at=utc_now(),
         success=success,
     )
     db.add(attempt)
-    db.flush()
+    db.commit()

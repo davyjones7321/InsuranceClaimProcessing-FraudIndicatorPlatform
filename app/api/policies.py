@@ -76,6 +76,7 @@ def create_policy(
             waiting_period_days=cov_data.waiting_period_days,
             conditions=cov_data.conditions,
             is_excluded=cov_data.is_excluded,
+            limit_exceeded_behavior=cov_data.limit_exceeded_behavior,
         )
         db.add(coverage)
 

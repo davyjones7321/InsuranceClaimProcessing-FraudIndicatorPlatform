@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import Claim, ClaimDocument, User
 from app.db.session import get_db
+from app.domain.constants import CANONICAL_SENSITIVE_DOC_CODES
 from app.domain.enums import UserRole
 from app.security.session import get_user_from_session
 
@@ -67,52 +68,55 @@ def require_roles(*roles: UserRole) -> Any:
 
 
 # Object-level authorization checks
-def check_claim_access(user: User, claim: Claim) -> None:
-    """Enforce object-level access control on a claim."""
-    if user.role in (UserRole.MANAGER, UserRole.ADMIN):
+def check_claim_access(user: User, claim: Claim, action: str = "READ") -> None:
+    """Enforce object-level access control on a claim per Decisions D6 and D7."""
+    if user.role == UserRole.MANAGER:
+        return
+
+    if user.role == UserRole.ADMIN:
+        if action == "DECIDE":
+            raise PermissionDeniedError("Admins cannot make claim decisions")
         return
 
     if user.role == UserRole.CUSTOMER:
         if claim.customer_id != user.customer_id:
             raise PermissionDeniedError("Customers can only view their own claims")
+        if action == "MUTATE_CLAIM":
+            raise PermissionDeniedError("Customers cannot directly mutate claims")
         return
 
     if user.role == UserRole.STAFF:
-        # Section H.87: Staff can only access claims they registered or are assigned to
+        if action in ("READ_SUMMARY", "DECIDE"):
+            return
         if claim.registered_by != user.id:
             raise PermissionDeniedError(
-                "Staff can only access claims they registered or are authorized to service"
+                "Staff can only access full details or mutate claims they registered"
             )
         return
 
     if user.role == UserRole.INVESTIGATOR:
-        # Section H.87: Investigators can only see assigned investigations
         assigned = any(inv.assigned_to == user.id for inv in claim.investigations)
         if not assigned:
             raise PermissionDeniedError("Investigators can only view claims assigned to them")
         return
 
     if user.role == UserRole.ASSESSOR:
-        # Assessors can view claims in assessment stages
         return
 
     raise PermissionDeniedError("Unauthorized claim access")
 
 
 def check_document_access(user: User, claim: Claim, document: ClaimDocument) -> None:
-    """Enforce document-level access control, including sensitive documents (Section H.88)."""
-    # First check basic claim access
-    check_claim_access(user, claim)
+    """Enforce document-level access control, including sensitive documents (D7, D8, Section H.88)."""
+    check_claim_access(user, claim, action="READ")
 
-    # Sensitive medical/identity document check
-    is_sensitive = document.doc_code in (
-        "MEDICAL_REPORT",
-        "DEATH_CERTIFICATE",
-        "IDENTITY_PROOF",
-        "FIR_REPORT",
-    )
+    if user.role == UserRole.STAFF:
+        raise PermissionDeniedError(
+            "Access to sensitive document is restricted: Staff are not authorized to view or download document content (D7)"
+        )
+
+    is_sensitive = document.doc_code in CANONICAL_SENSITIVE_DOC_CODES
     if is_sensitive:
-        # Visible only to assessors, assigned investigator, and managers
         if user.role in (UserRole.MANAGER, UserRole.ASSESSOR):
             return
         if user.role == UserRole.INVESTIGATOR:
@@ -121,20 +125,29 @@ def check_document_access(user: User, claim: Claim, document: ClaimDocument) -> 
         raise PermissionDeniedError("Access to sensitive document is restricted")
 
 
-def check_separation_of_duties(user: User, claim: Claim, action: str) -> None:
-    """Enforce separation of duties: assessors cannot decide; investigators cannot assess or decide."""
+def check_separation_of_duties(
+    user: User,
+    claim: Claim,
+    action: str,
+    document: ClaimDocument | None = None,
+) -> None:
+    """Enforce separation of duties per Section 12, P1 task 8, and D8."""
     if not settings.SEPARATION_OF_DUTIES_ENABLED:
         return
 
-    if action == "DECIDE":
-        # The user who assessed a claim cannot make the final decision on it
+    if action == "REVIEW_DOCUMENT":
+        if document and document.uploaded_by == user.id:
+            raise PermissionDeniedError(
+                "Separation of duties: Document reviewer cannot be the uploader"
+            )
+
+    elif action == "DECIDE":
         for assessment in claim.assessments:
             if assessment.assessor_id == user.id:
                 raise PermissionDeniedError(
                     "Separation of duties: The assessor of a claim cannot decide it"
                 )
 
-        # An investigator cannot decide the claim they investigated
         for inv in claim.investigations:
             if inv.assigned_to == user.id:
                 raise PermissionDeniedError(
@@ -142,9 +155,28 @@ def check_separation_of_duties(user: User, claim: Claim, action: str) -> None:
                 )
 
     elif action == "ASSESS":
-        # An investigator cannot assess the claim they investigated
         for inv in claim.investigations:
             if inv.assigned_to == user.id:
                 raise PermissionDeniedError(
                     "Separation of duties: An investigator cannot assess the claim they investigated"
                 )
+
+
+def check_risk_access(user: User, claim: Claim) -> None:
+    """Enforce risk data visibility restrictions per Decision D6 (fix F4)."""
+    check_claim_access(user, claim, action="READ")
+
+    if user.role in (UserRole.CUSTOMER, UserRole.STAFF):
+        raise PermissionDeniedError(
+            f"Role '{user.role.value}' is not authorized to view risk evaluations"
+        )
+
+
+def get_customer_safe_status(status: Any) -> str:
+    """Map internal sensitive statuses (UNDER_INVESTIGATION, ESCALATED) to customer-safe label per D6/D7."""
+    from app.domain.enums import ClaimStatus
+
+    val = status.value if hasattr(status, "value") else str(status)
+    if val in (ClaimStatus.UNDER_INVESTIGATION.value, ClaimStatus.ESCALATED.value):
+        return "UNDER_REVIEW"
+    return val

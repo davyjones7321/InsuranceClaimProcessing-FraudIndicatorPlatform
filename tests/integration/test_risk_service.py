@@ -52,6 +52,16 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         address="100 Cyberdyne Way",
         state_region="CA",
     )
+    other_cust = Customer(
+        id=uuid.uuid4(),
+        customer_no="CUST-RISK-002",
+        full_name="Kyle Reese",
+        dob=date(1985, 4, 12),
+        email="kyle.reese@example.com",
+        phone="+15554322",
+        address="101 Cyberdyne Way",
+        state_region="CA",
+    )
     user_cust = User(
         id=uuid.uuid4(),
         email="sarah.cust@example.com",
@@ -65,7 +75,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         email="other.risk.cust@example.com",
         password_hash=hash_password("Password123!"),
         role=UserRole.CUSTOMER,
-        customer_id=uuid.uuid4(),
+        customer_id=other_cust.id,
         is_active=True,
     )
     user_staff = User(
@@ -106,6 +116,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("0.00"),
         waiting_period_days=0,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
 
     # Claim in VALIDATED status (incident 2026-06-15, > 30 days from start, well before end)
@@ -126,7 +137,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         status_version=2,
     )
 
-    # Claim in VALIDATED status with Early Incident (Jan 10, 9 days after policy start -> triggers R05, weight 25)
+    # Claim in VALIDATED status with Early Incident (Jan 10, 9 days after policy start -> triggers R05, R03, R09 -> Score 40 HIGH)
     claim_early = Claim(
         id=uuid.uuid4(),
         claim_ref="CLM-2026-800002",
@@ -136,8 +147,8 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
         incident_date=date(2026, 1, 10),
         incident_location="General Hospital, CA",
         incident_description="Emergency surgery shortly after start",
-        requested_amount=Decimal("15000.00"),
-        registered_at=datetime(2026, 1, 15, 10, 0, tzinfo=UTC),
+        requested_amount=Decimal("85000.00"),
+        registered_at=datetime(2026, 2, 5, 10, 0, tzinfo=UTC),
         registered_by=user_staff.id,
         channel=ClaimChannel.STAFF,
         status=ClaimStatus.VALIDATED,
@@ -147,6 +158,7 @@ def risk_fixture(db_session: Session) -> dict[str, Any]:
     db_session.add_all(
         [
             cust,
+            other_cust,
             user_cust,
             user_other_cust,
             user_staff,
@@ -213,19 +225,26 @@ def test_flagged_claim_routes_to_under_investigation_and_creates_record(
 ) -> None:
     claim: Claim = risk_fixture["claim_early"]
     staff: User = risk_fixture["user_staff"]
+    admin: User = risk_fixture["user_admin"]
 
-    headers = auth_headers(db_session, staff)
+    # 1. Staff is forbidden from evaluating risk per D6
+    staff_headers = auth_headers(db_session, staff)
+    res_staff = client.post(f"/api/claims/{claim.id}/evaluate-risk", headers=staff_headers)
+    assert res_staff.status_code == 403
+
+    # 2. Authorized actor evaluates risk
+    headers = auth_headers(db_session, admin)
     resp = client.post(f"/api/claims/{claim.id}/evaluate-risk", headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
-    assert data["score"] == 25
-    assert data["category"] == "MEDIUM"
+    assert data["score"] == 40
+    assert data["category"] == "HIGH"
     assert data["requires_investigation"] is True
 
     r05_res = next(r for r in data["indicator_results"] if r["indicator_id"] == "R05")
     assert r05_res["triggered"] is True
-    assert r05_res["weight_applied"] == 25
+    assert r05_res["weight_applied"] == 15
 
     db_session.refresh(claim)
     assert claim.status == ClaimStatus.UNDER_INVESTIGATION
@@ -236,7 +255,7 @@ def test_flagged_claim_routes_to_under_investigation_and_creates_record(
     ).first()
     assert inv is not None
     assert inv.status == InvestigationStatus.ASSIGNED
-    assert inv.assigned_by == staff.id
+    assert inv.assigned_by == admin.id
     assert inv.assigned_to is None
 
     # Verify audit chain integrity
@@ -257,24 +276,27 @@ def test_risk_evaluation_api_endpoints_and_scoping(
     resp = client.post(f"/api/claims/{claim.id}/evaluate-risk", headers=admin_headers)
     assert resp.status_code == 200
 
-    # 2. Customer reads their own risk evaluations
+    # 2. Customer attempting to read risk evaluations gets 403 Forbidden (F4 fix, D6)
     cust_headers = auth_headers(db_session, cust)
     resp = client.get(f"/api/claims/{claim.id}/risk-evaluations", headers=cust_headers)
-    assert resp.status_code == 200
-    evals = resp.json()
-    assert len(evals) >= 1
+    assert resp.status_code == 403
 
-    # 3. Customer reads latest risk evaluation
+    # 3. Customer attempting to read latest risk evaluation gets 403 Forbidden
     resp_latest = client.get(
         f"/api/claims/{claim.id}/risk-evaluations/latest", headers=cust_headers
     )
-    assert resp_latest.status_code == 200
-    assert resp_latest.json()["id"] == evals[0]["id"]
+    assert resp_latest.status_code == 403
 
-    # 4. Other customer attempting to view evaluations is forbidden (403)
+    # 4. Other customer attempting to view evaluations is also forbidden (403)
     other_headers = auth_headers(db_session, other_cust)
     resp_forbid = client.get(f"/api/claims/{claim.id}/risk-evaluations", headers=other_headers)
     assert resp_forbid.status_code == 403
+
+    # 5. Admin reads risk evaluations successfully (200)
+    resp_admin = client.get(f"/api/claims/{claim.id}/risk-evaluations", headers=admin_headers)
+    assert resp_admin.status_code == 200
+    evals = resp_admin.json()
+    assert len(evals) >= 1
 
 
 def test_deterministic_replay_on_risk_evaluation(

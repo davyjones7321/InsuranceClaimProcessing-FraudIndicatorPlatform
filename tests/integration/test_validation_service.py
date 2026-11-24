@@ -53,6 +53,16 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         address="77 Wall Street",
         state_region="NY",
     )
+    other_cust = Customer(
+        id=uuid.uuid4(),
+        customer_no="CUST-VAL-002",
+        full_name="Wendy Worker",
+        dob=date(1987, 8, 15),
+        email="wendy.worker@example.com",
+        phone="+15559998",
+        address="78 Wall Street",
+        state_region="NY",
+    )
     user_cust = User(
         id=uuid.uuid4(),
         email="bob.cust@example.com",
@@ -66,7 +76,7 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         email="other.cust@example.com",
         password_hash=hash_password("Password123!"),
         role=UserRole.CUSTOMER,
-        customer_id=uuid.uuid4(),
+        customer_id=other_cust.id,
         is_active=True,
     )
     user_staff = User(
@@ -113,6 +123,7 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
         copay_percent=Decimal("10.00"),
         waiting_period_days=30,
         is_excluded=False,
+        limit_exceeded_behavior="CAP",
     )
 
     req_doc = RequiredDocumentType(
@@ -144,6 +155,7 @@ def validation_fixture(db_session: Session) -> dict[str, Any]:
     db_session.add_all(
         [
             cust,
+            other_cust,
             user_cust,
             user_other_cust,
             user_staff,
@@ -225,7 +237,7 @@ def test_document_upload_and_review_unblocks_claim_validation(
     )
     assert uploaded_doc.status == DocumentStatus.PENDING_REVIEW
 
-    # Step 3: Review document as VALID
+    # Step 3: Review document as VALID -> triggers revalidation in same transaction (fix F8)
     from app.schemas.documents import DocumentReviewRequest
 
     reviewed_doc = claim_service.review_document(
@@ -239,10 +251,7 @@ def test_document_upload_and_review_unblocks_claim_validation(
     assert reviewed_doc.status == DocumentStatus.VALID
     db_session.commit()
 
-    # Step 4: Re-run validation -> should transition DOCUMENTS_PENDING -> REGISTERED -> VALIDATED
-    val_run2 = val_service.validate_claim(claim.id, staff, evaluation_date=date(2026, 3, 10))
-    assert val_run2.overall_result == ValidationOutcome.PASS
-
+    # Step 4: Revalidation transitioned DOCUMENTS_PENDING -> REGISTERED -> VALIDATED
     db_session.refresh(claim)
     assert claim.status == ClaimStatus.VALIDATED
 

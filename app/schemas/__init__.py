@@ -6,6 +6,7 @@ from app.schemas.assessments import (
 )
 from app.schemas.claims import (
     ClaimCreate,
+    ClaimReopenRequest,
     ClaimResponse,
     ClaimStatusHistoryResponse,
     ClaimStatusTransitionRequest,
@@ -17,6 +18,8 @@ from app.schemas.decisions import (
 from app.schemas.documents import (
     DocumentResponse,
     DocumentReviewRequest,
+    IdentityAttestationCreate,
+    IdentityAttestationResponse,
 )
 from app.schemas.investigations import (
     InvestigationAssignRequest,
@@ -59,6 +62,7 @@ __all__ = [
     "AssessmentCreate",
     "AssessmentResponse",
     "ClaimCreate",
+    "ClaimReopenRequest",
     "ClaimResponse",
     "ClaimStatusHistoryResponse",
     "ClaimStatusTransitionRequest",
@@ -72,6 +76,8 @@ __all__ = [
     "DecisionResponse",
     "DocumentResponse",
     "DocumentReviewRequest",
+    "IdentityAttestationCreate",
+    "IdentityAttestationResponse",
     "ExclusionCreate",
     "ExclusionResponse",
     "ImportSummary",

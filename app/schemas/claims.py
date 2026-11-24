@@ -22,6 +22,10 @@ class ClaimCreate(BaseModel):
         default=None,
         description="Optional reference to insured vehicle, property, or member item.",
     )
+    incident_group_id: uuid.UUID | None = Field(
+        default=None,
+        description="Optional incident group linking related claims from the same event (D12).",
+    )
     claim_category: Annotated[str, Field(min_length=2, max_length=64)]
     incident_date: date
     incident_location: Annotated[str, Field(min_length=2, max_length=255)]
@@ -44,6 +48,19 @@ class ClaimStatusTransitionRequest(BaseModel):
     reason_code: Annotated[str | None, Field(default=None, max_length=64)] = None
 
 
+class ClaimReopenRequest(BaseModel):
+    """Payload for reopening an approved or rejected claim (Manager only)."""
+
+    remarks: Annotated[
+        str, Field(min_length=20, description="Mandatory remarks for reopening the claim")
+    ]
+    expected_status_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional optimistic locking token matching the current claim status_version.",
+    )
+
+
 class ClaimResponse(BaseModel):
     """Standard representation of a claim."""
 
@@ -54,15 +71,18 @@ class ClaimResponse(BaseModel):
     policy_id: uuid.UUID
     customer_id: uuid.UUID
     insured_item_id: uuid.UUID | None = None
+    incident_group_id: uuid.UUID | None = None
     claim_category: str
     incident_date: date
     incident_location: str
     incident_description: str
     requested_amount: Decimal
     registered_at: datetime
+    registered_on: date
+    registered_tz: str
     registered_by: uuid.UUID
     channel: ClaimChannel
-    status: ClaimStatus
+    status: ClaimStatus | str
     status_version: int
     source_system: str | None = None
     external_ref: str | None = None

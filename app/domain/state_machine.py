@@ -45,12 +45,22 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     ClaimStatus.VALIDATED: frozenset(
         {
             ClaimStatus.RISK_EVALUATED,
+            ClaimStatus.RISK_DATA_PENDING,
+        }
+    ),
+    ClaimStatus.RISK_DATA_PENDING: frozenset(
+        {
+            ClaimStatus.VALIDATED,  # Data completed, re-evaluate
+            ClaimStatus.READY_FOR_ASSESSMENT,  # Manager completeness waiver
+            ClaimStatus.REJECTED,
+            ClaimStatus.WITHDRAWN,
         }
     ),
     ClaimStatus.RISK_EVALUATED: frozenset(
         {
             ClaimStatus.UNDER_INVESTIGATION,  # Score >= threshold
             ClaimStatus.READY_FOR_ASSESSMENT,  # Clean / not flagged
+            ClaimStatus.RISK_DATA_PENDING,  # Incomplete risk data
         }
     ),
     ClaimStatus.UNDER_INVESTIGATION: frozenset(
@@ -72,6 +82,7 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     ClaimStatus.READY_FOR_ASSESSMENT: frozenset(
         {
             ClaimStatus.ASSESSED,
+            ClaimStatus.UNDER_INVESTIGATION,  # P6 Task 10: manual referral
             ClaimStatus.REJECTED,  # Section G.78
             ClaimStatus.INFO_REQUESTED,  # Section G.78
         }
@@ -79,6 +90,7 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     ClaimStatus.ASSESSED: frozenset(
         {
             ClaimStatus.APPROVED,
+            ClaimStatus.UNDER_INVESTIGATION,  # P6 Task 10: manual referral
             ClaimStatus.REJECTED,
             ClaimStatus.INFO_REQUESTED,
         }
@@ -89,9 +101,18 @@ ALLOWED_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
             ClaimStatus.WITHDRAWN,
         }
     ),
-    # Final states: no outgoing transitions by default
-    ClaimStatus.APPROVED: frozenset(),
-    ClaimStatus.REJECTED: frozenset(),
+    # Reopen/correction per Decision D1: manager-only transition to READY_FOR_ASSESSMENT
+    ClaimStatus.APPROVED: frozenset(
+        {
+            ClaimStatus.READY_FOR_ASSESSMENT,
+        }
+    ),
+    ClaimStatus.REJECTED: frozenset(
+        {
+            ClaimStatus.READY_FOR_ASSESSMENT,
+        }
+    ),
+    # Terminal state: no outgoing transitions
     ClaimStatus.WITHDRAWN: frozenset(),
 }
 

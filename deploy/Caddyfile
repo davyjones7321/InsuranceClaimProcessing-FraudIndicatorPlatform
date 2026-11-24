@@ -1,0 +1,34 @@
+# Caddyfile for ClaimFlow Platform (Decision D3)
+# Reverse proxy with automatic TLS, request limits, and timeouts
+
+{
+    email admin@insurance.example
+    admin off
+}
+
+:80, :443 {
+    # Request body size limit: 10MB per Section 2 / P8 Task 2
+    request_body {
+        max_size 10MB
+    }
+
+    # Reverse proxy to backend application container
+    reverse_proxy app:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Upstream timeouts
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 60s
+        }
+    }
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+}

@@ -5,7 +5,6 @@ import pytest
 from app.domain.enums import ClaimStatus
 from app.domain.state_machine import (
     ALLOWED_TRANSITIONS,
-    FINAL_STATES,
     InvalidStateTransitionError,
     validate_transition,
 )
@@ -40,10 +39,12 @@ def test_exhaustive_state_transitions() -> None:
     assert allowed_count == expected_allowed
 
 
-def test_final_states_have_no_outgoing_transitions() -> None:
-    """Final states (APPROVED, REJECTED, WITHDRAWN) must have zero outgoing transitions."""
-    for final_state in FINAL_STATES:
-        targets = ALLOWED_TRANSITIONS.get(final_state, frozenset())
-        assert len(targets) == 0, (
-            f"Final state {final_state} has illegal outgoing transitions: {targets}"
-        )
+def test_final_states_outgoing_transitions() -> None:
+    """WITHDRAWN has zero outgoing transitions; APPROVED and REJECTED only allow reopen to READY_FOR_ASSESSMENT."""
+    assert len(ALLOWED_TRANSITIONS.get(ClaimStatus.WITHDRAWN, frozenset())) == 0
+    assert ALLOWED_TRANSITIONS.get(ClaimStatus.APPROVED, frozenset()) == frozenset(
+        {ClaimStatus.READY_FOR_ASSESSMENT}
+    )
+    assert ALLOWED_TRANSITIONS.get(ClaimStatus.REJECTED, frozenset()) == frozenset(
+        {ClaimStatus.READY_FOR_ASSESSMENT}
+    )

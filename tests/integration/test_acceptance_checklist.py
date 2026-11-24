@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.analytics.service import AnalyticsService
@@ -171,6 +171,7 @@ def acceptance_seed(db_session: Session) -> dict[str, Any]:
         limit_scope=LimitScope.PER_POLICY_PERIOD,
         limit_amount=Decimal("100000.00"),
         consumed_amount=Decimal("0.00"),
+        limit_exceeded_behavior="CAP",
     )
     cov_b = Coverage(
         id=uuid.uuid4(),
@@ -179,6 +180,7 @@ def acceptance_seed(db_session: Session) -> dict[str, Any]:
         limit_scope=LimitScope.PER_POLICY_PERIOD,
         limit_amount=Decimal("100000.00"),
         consumed_amount=Decimal("0.00"),
+        limit_exceeded_behavior="CAP",
     )
 
     db_session.add_all(
@@ -447,14 +449,13 @@ def test_acceptance_04_clean_claim_no_investigation_lifecycle() -> None:
     )
     risk_in = RiskInput(
         claim=claim,
-        customer_name="Alice Customer",
-        customer_state_region="CA",
         policy=policy,
         coverage=cov,
         documents=(),
         historical_claims=(),
         peer_approved_amounts=(),
         evaluation_date=date(2026, 6, 6),
+        history_coverage={"HEALTH": date(2020, 1, 1)},
         ruleset=ACTIVE_RULESET,
     )
     risk_res = evaluate_risk(risk_in)
@@ -476,7 +477,7 @@ def test_acceptance_05_high_risk_routes_to_investigation_no_fraud_wording() -> N
         incident_location="Clinic",
         incident_description="Emergency surgery procedure",
         requested_amount=Decimal("100000.00"),
-        registered_date=date(2026, 1, 6),
+        registered_date=date(2026, 1, 26),
     )
     policy = PolicyInput(
         policy_id="pol-1",
@@ -499,18 +500,17 @@ def test_acceptance_05_high_risk_routes_to_investigation_no_fraud_wording() -> N
     )
     risk_in = RiskInput(
         claim=claim,
-        customer_name="Alice Customer",
-        customer_state_region="CA",
         policy=policy,
         coverage=cov,
         documents=(),
         historical_claims=(),
         peer_approved_amounts=(),
-        evaluation_date=date(2026, 1, 7),
+        evaluation_date=date(2026, 1, 27),
+        history_coverage={"HEALTH": date(2020, 1, 1)},
         ruleset=ACTIVE_RULESET,
     )
     risk_res = evaluate_risk(risk_in)
-    assert risk_res.score >= 25
+    assert risk_res.score >= 40
     assert risk_res.requires_investigation
 
     forbidden_words = {"fraud", "fraudulent", "fraudster", "scam", "guilty", "criminal"}
@@ -636,7 +636,7 @@ def test_acceptance_09_audit_tamper_detection(db_session: Session) -> None:
         entity_type="Claim",
         entity_id=str(claim_id),
         actor_role="CUSTOMER",
-        event_data={"note": "Original submission"},
+        event_data={"note_sha256": "0" * 64},
         claim_id=claim_id,
     )
     write_audit_log(
@@ -659,7 +659,9 @@ def test_acceptance_09_audit_tamper_detection(db_session: Session) -> None:
         select(AuditLog).where(AuditLog.chain_key == chain_key, AuditLog.seq == 1)
     ).first()
     assert log_entry is not None
-    log_entry.event_data = {"note": "Tampered submission"}
+    if db_session.bind is not None and db_session.bind.dialect.name == "postgresql":
+        db_session.execute(text("SET LOCAL session_replication_role = replica;"))
+    log_entry.event_data = {"note_sha256": "1" * 64}
     db_session.commit()
 
     tampered_ver = verify_chain(db_session, chain_key, record_run=False)

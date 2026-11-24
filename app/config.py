@@ -48,12 +48,48 @@ class Settings(BaseSettings):
     SESSION_MAX_AGE_SECONDS: int = 86400  # 24 hours
     PASSWORD_MIN_LENGTH: int = 12
     LOGIN_MAX_FAILED_ATTEMPTS: int = 5
+
+    # External S3 Object Lock Audit Anchoring (Decision D3)
+    ANCHOR_AWS_ACCESS_KEY_ID: str = Field(
+        default="",
+        description="Dedicated anchor-writer IAM access key ID with PutObject only",
+    )
+    ANCHOR_AWS_SECRET_ACCESS_KEY: str = Field(
+        default="",
+        description="Dedicated anchor-writer IAM secret access key",
+    )
+    ANCHOR_AWS_REGION: str = Field(
+        default="ap-south-1",
+        description="AWS region for S3 bucket (Mumbai per D3)",
+    )
+    ANCHOR_S3_BUCKET: str = Field(
+        default="",
+        description="S3 bucket with Object Lock in compliance mode in separate AWS account",
+    )
+    ANCHOR_S3_ENDPOINT_URL: str | None = Field(
+        default=None,
+        description="Optional custom endpoint URL for testing",
+    )
+    ANCHOR_OBJECT_LOCK_RETENTION_DAYS: int = Field(
+        default=3650,
+        description="Compliance mode retention period in days (10 years per D10)",
+    )
+    ANCHOR_VERIFIER_AWS_ACCESS_KEY_ID: str = Field(
+        default="",
+        description="Dedicated anchor-verifier IAM access key ID with read-only access",
+    )
+    ANCHOR_VERIFIER_AWS_SECRET_ACCESS_KEY: str = Field(
+        default="",
+        description="Dedicated anchor-verifier IAM secret access key",
+    )
     LOGIN_LOCKOUT_MINUTES: int = 15
 
     # Separation of duties & thresholds
     SEPARATION_OF_DUTIES_ENABLED: bool = True
     MANAGER_APPROVAL_THRESHOLD: Decimal = Decimal("500000.00")
     MIN_DECISION_REMARKS_LENGTH: int = 20
+    REQUIRE_MANAGER_WHEN_CAPPED: bool = False
+    LOCK_TIMEOUT_SECONDS: int = 5
 
     # Upload configuration
     UPLOAD_MAX_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
@@ -63,10 +99,15 @@ class Settings(BaseSettings):
         "image/png",
     ]
     UPLOAD_STORAGE_PATH: str = "storage/documents"
+    ANTIVIRUS_ENABLED: bool = False
 
     # Ruleset
     ACTIVE_RULESET_VERSION: str = "v1"
     ENGINE_VERSION: str = "1.0.0"
+    CALCULATION_SPEC_RISK_ACCEPTANCE_REF: str = Field(
+        default="",
+        description="Recorded owner risk-acceptance reference required to run illustrative formulas in production",
+    )
 
     @field_validator("DEBUG")
     @classmethod

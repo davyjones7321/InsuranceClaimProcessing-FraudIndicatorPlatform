@@ -8,6 +8,15 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class AssessmentComponentCreate(BaseModel):
+    """Cost breakdown component evaluated during assessment."""
+
+    component_type: Annotated[str, Field(min_length=1, max_length=64)]
+    claimed_amount: Annotated[Decimal, Field(ge=Decimal("0.00"), decimal_places=2)]
+    assessed_amount: Annotated[Decimal, Field(ge=Decimal("0.00"), decimal_places=2)]
+    zeroed_reason: Annotated[str | None, Field(default=None, max_length=255)] = None
+
+
 class AssessmentCreate(BaseModel):
     """Payload submitted by an assessor to record an assessment."""
 
@@ -15,6 +24,9 @@ class AssessmentCreate(BaseModel):
     eligible_amount: Annotated[Decimal, Field(ge=Decimal("0.00"), decimal_places=2)]
     remarks: Annotated[str, Field(min_length=5)]
     supporting_info: Annotated[str | None, Field(default=None)] = None
+
+    # Typed components defined by product profile
+    components: list[AssessmentComponentCreate] = Field(default_factory=list)
 
     # Optional manual overrides/additions to coverage parameters
     deductible: Annotated[Decimal | None, Field(default=None, ge=Decimal("0.00"))] = None
@@ -33,6 +45,8 @@ class AssessmentResponse(BaseModel):
     id: uuid.UUID
     claim_id: uuid.UUID
     assessor_id: uuid.UUID
+    ruleset_version: str = "v1"
+    engine_version: str = "1.0.0"
     assessed_loss: Decimal
     max_eligible_amount: Decimal
     eligible_amount: Decimal

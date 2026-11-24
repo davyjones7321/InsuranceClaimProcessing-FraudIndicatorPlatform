@@ -1,10 +1,14 @@
 """Tests for health, readiness, operational metrics, request ID, and structured logging."""
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.config import settings
+from app.db.models import User
 from app.observability import mask_pii
 from app.rules.loader import ACTIVE_RULESET_SHA256
+from app.security.session import create_session
 
 
 def test_healthz_liveness_probe(client: TestClient) -> None:
@@ -27,8 +31,10 @@ def test_readyz_readiness_probe(client: TestClient) -> None:
     assert data["engine_version"] == settings.ENGINE_VERSION
 
 
-def test_metrics_endpoint(client: TestClient) -> None:
-    resp = client.get("/metrics")
+def test_metrics_endpoint(client: TestClient, db_session, sample_admin: User) -> None:
+    session_id = create_session(db_session, sample_admin)
+    db_session.commit()
+    resp = client.get("/metrics", headers={"Authorization": f"Bearer {session_id}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["app"] == settings.APP_NAME
@@ -37,6 +43,17 @@ def test_metrics_endpoint(client: TestClient) -> None:
     assert "audit_chains_count" in data
     assert data["validation_rules_count"] >= 12
     assert data["risk_indicators_count"] >= 9
+
+
+def test_metrics_requires_authorized_role(
+    client: TestClient, db_session, sample_customer_user: User
+) -> None:
+    assert client.get("/metrics").status_code == 401
+
+    session_id = create_session(db_session, sample_customer_user)
+    db_session.commit()
+    response = client.get("/metrics", headers={"Authorization": f"Bearer {session_id}"})
+    assert response.status_code == 403
 
 
 def test_request_id_middleware_generates_and_propagates(client: TestClient) -> None:
@@ -77,3 +94,35 @@ def test_pii_masking_utility() -> None:
     masked_secret = mask_pii(raw_secret)
     assert "SecretPassword123!" not in masked_secret
     assert "******" in masked_secret
+
+
+@pytest.mark.parametrize(
+    ("revision", "expected_status"),
+    [
+        ("0010_schema_alignment", 200),
+        ("0008_operations_jobs", 503),
+    ],
+)
+def test_readyz_requires_current_alembic_head(
+    client: TestClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+    revision: str,
+    expected_status: int,
+) -> None:
+    """Staging readiness accepts the current schema head and rejects older revisions."""
+    monkeypatch.setattr(settings, "ENV", "staging")
+    db_session.execute(
+        text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)")
+    )
+    db_session.execute(text("DELETE FROM alembic_version"))
+    db_session.execute(
+        text("INSERT INTO alembic_version (version_num) VALUES (:revision)"),
+        {"revision": revision},
+    )
+    db_session.commit()
+
+    response = client.get("/readyz")
+    assert response.status_code == expected_status
+    if expected_status == 503:
+        assert "0010_schema_alignment" in response.json()["detail"]

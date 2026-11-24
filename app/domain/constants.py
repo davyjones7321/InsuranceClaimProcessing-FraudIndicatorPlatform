@@ -22,3 +22,18 @@ ALLOWED_REJECTION_REASON_CODES: frozenset[str] = frozenset(
         "OTHER",
     }
 )
+
+CANONICAL_SENSITIVE_DOC_CODES: frozenset[str] = frozenset(
+    {
+        "MEDICAL_REPORT",
+        "DEATH_CERTIFICATE",
+        "DISCHARGE_SUMMARY",
+        "IDENTITY_PROOF",
+        "FIR_REPORT",
+    }
+)
+
+CUSTOMER_MASKED_STATUS_MAP: dict[str, str] = {
+    "UNDER_INVESTIGATION": "UNDER_REVIEW",
+    "ESCALATED": "UNDER_REVIEW",
+}

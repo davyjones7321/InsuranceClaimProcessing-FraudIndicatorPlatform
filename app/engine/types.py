@@ -1,6 +1,6 @@
 """Pure dataclasses and output types for the deterministic validation and risk engines."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
@@ -31,6 +31,22 @@ class RiskCategoryEnum(StrEnum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+    UNASSESSED = "UNASSESSED"
+
+
+class RiskCompletenessEnum(StrEnum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+
+
+class IndicatorEvaluationStatusEnum(StrEnum):
+    TRIGGERED = "TRIGGERED"
+    NOT_TRIGGERED = "NOT_TRIGGERED"
+    SKIPPED = "SKIPPED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    DISABLED = "DISABLED"
+    PILOT = "PILOT"
 
 
 @dataclass(frozen=True)
@@ -46,6 +62,7 @@ class ClaimInput:
     requested_amount: Decimal
     registered_date: date
     insured_item_id: str | None = None
+    incident_group_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +86,8 @@ class CoverageInput:
     copay_percent: Decimal
     waiting_period_days: int
     is_excluded: bool
+    limit_exceeded_behavior: str = "CAP"
+    limit_scope: str = "PER_POLICY_PERIOD"
 
 
 @dataclass(frozen=True)
@@ -84,6 +103,9 @@ class DocumentInput:
     status: str  # VALID, INVALID, PENDING_REVIEW, SUPERSEDED
     named_person: str | None = None
     document_date: date | None = None
+    identity_attestation_result: str | None = None  # CONFIRMED, MISMATCH, UNCERTAIN, None
+    is_identity_attestation_current: bool = True
+    is_identity_bearing: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,6 +113,7 @@ class RequiredDocumentTypeInput:
     doc_code: str
     name: str
     is_mandatory: bool
+    is_identity_bearing: bool = False
 
 
 @dataclass(frozen=True)
@@ -137,6 +160,7 @@ class HistoricalClaimInput:
     requested_amount: Decimal
     status: str
     approved_amount: Decimal | None = None
+    incident_group_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,7 +171,11 @@ class RiskIndicatorResult:
     weight_applied: int
     evidence: dict[str, Any]
     message: str
-    status: str  # PILOT, VALIDATED
+    status: str  # TRIGGERED, NOT_TRIGGERED, SKIPPED, NOT_APPLICABLE, DISABLED
+    group: str = ""
+    weight: int = 0
+    sufficient_alone: bool = False
+    evidence_level: str = "NONE"
     skipped: bool = False
     skip_reason: str | None = None
 
@@ -157,17 +185,20 @@ class RiskOutput:
     ruleset_version: str
     engine_version: str
     evaluated_on: date
-    score: int  # 0..100
-    category: RiskCategoryEnum  # LOW, MEDIUM, HIGH
+    score: int | None  # 0..100 or None if UNASSESSED
+    category: RiskCategoryEnum  # LOW, MEDIUM, HIGH, UNASSESSED
+    completeness: RiskCompletenessEnum  # COMPLETE, PARTIAL, INSUFFICIENT_DATA
+    composed_label: str  # e.g. "LOW (COMPLETE)", "UNASSESSED (INSUFFICIENT_DATA)"
     requires_investigation: bool
+    routing_reasons: tuple[str, ...]
+    group_scores: dict[str, int]
+    pilot_banner: str
     indicator_results: list[RiskIndicatorResult]
 
 
 @dataclass(frozen=True)
 class RiskInput:
     claim: ClaimInput
-    customer_name: str
-    customer_state_region: str | None
     policy: PolicyInput | None
     coverage: CoverageInput | None
     documents: tuple[DocumentInput, ...]
@@ -175,6 +206,15 @@ class RiskInput:
     peer_approved_amounts: tuple[Decimal, ...]
     evaluation_date: date
     ruleset: dict[str, Any]
+    history_coverage: dict[str, date] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AssessmentComponentInput:
+    component_type: str
+    claimed_amount: Decimal
+    assessed_amount: Decimal
+    zeroed_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +228,7 @@ class AssessmentInput:
     depreciation: Decimal = Decimal("0.00")
     sum_insured: Decimal = Decimal("0.00")
     value_at_risk: Decimal = Decimal("0.00")
+    components: tuple[AssessmentComponentInput, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -31,7 +31,6 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
     rules_cfg: dict[str, Any] = val_input.ruleset.get("validation_rules", {})
     ruleset_ver: str = val_input.ruleset.get("ruleset_version", "v1")
     engine_ver: str = val_input.ruleset.get("engine_version", "1.0.0")
-    limit_policy: str = val_input.ruleset.get("claim_limit_policy", "CAP_WITH_WARNING")
 
     results: list[ValidationRuleResult] = []
     blocked_docs: list[str] = []
@@ -434,7 +433,7 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
         )
 
     # ==========================================
-    # V11: Coverage Limit Check (Section A.1 Policy)
+    # V11: Coverage Limit Check (Decision D1 Policy)
     # ==========================================
     cfg_v11 = rules_cfg.get("V11", {})
     v11_ver = str(cfg_v11.get("version", "1.0"))
@@ -445,59 +444,104 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
             ValidationRuleResult(
                 rule_id="V11",
                 rule_version=v11_ver,
-                outcome=RuleOutcomeEnum.SKIPPED,
-                reason_code=None,
-                message="Skipped because coverage is not found",
+                outcome=RuleOutcomeEnum.FAIL,
+                reason_code="POLICY_TERMS_INCOMPLETE",
+                message="Coverage terms missing or incomplete for claim category",
+                inputs_snapshot=v11_snapshot,
+            )
+        )
+    elif matching_coverage.limit_exceeded_behavior not in ("CAP", "REJECT"):
+        v11_snapshot = {
+            "coverage_present": True,
+            "limit_exceeded_behavior": matching_coverage.limit_exceeded_behavior,
+        }
+        results.append(
+            ValidationRuleResult(
+                rule_id="V11",
+                rule_version=v11_ver,
+                outcome=RuleOutcomeEnum.FAIL,
+                reason_code="POLICY_TERMS_INCOMPLETE",
+                message=f"Unknown limit_exceeded_behavior: '{matching_coverage.limit_exceeded_behavior}'",
                 inputs_snapshot=v11_snapshot,
             )
         )
     else:
-        remaining_capacity = matching_coverage.limit_amount - matching_coverage.consumed_amount
+        behavior = matching_coverage.limit_exceeded_behavior
+        limit_scope = getattr(matching_coverage, "limit_scope", "PER_POLICY_PERIOD")
+        if limit_scope == "PER_CLAIM":
+            remaining_capacity = matching_coverage.limit_amount
+        else:
+            remaining_capacity = matching_coverage.limit_amount - matching_coverage.consumed_amount
         remaining_limit = round_money(max(Decimal("0.00"), remaining_capacity))
         exceeds_limit = claim.requested_amount > remaining_limit
+        is_exhausted = remaining_limit <= Decimal("0.00")
         v11_snapshot = {
             "requested_amount": _serialize_decimal(claim.requested_amount),
             "limit_amount": _serialize_decimal(matching_coverage.limit_amount),
             "consumed_amount": _serialize_decimal(matching_coverage.consumed_amount),
             "remaining_limit": _serialize_decimal(remaining_limit),
-            "policy": limit_policy,
-            "limit_warning": exceeds_limit,
+            "limit_scope": limit_scope,
+            "limit_exceeded_behavior": behavior,
+            "limit_warning": exceeds_limit if behavior == "CAP" and not is_exhausted else False,
         }
 
-        if exceeds_limit and limit_policy == "REJECT":
-            results.append(
-                ValidationRuleResult(
-                    rule_id="V11",
-                    rule_version=v11_ver,
-                    outcome=RuleOutcomeEnum.FAIL,
-                    reason_code=cfg_v11.get("reason_code", "LIMIT_EXCEEDED"),
-                    message=f"Requested amount exceeds remaining limit of {remaining_limit}",
-                    inputs_snapshot=v11_snapshot,
+        if behavior == "CAP":
+            if is_exhausted:
+                results.append(
+                    ValidationRuleResult(
+                        rule_id="V11",
+                        rule_version=v11_ver,
+                        outcome=RuleOutcomeEnum.FAIL,
+                        reason_code="LIMIT_EXHAUSTED",
+                        message=f"Coverage limit exhausted for category '{claim.claim_category}'",
+                        inputs_snapshot=v11_snapshot,
+                    )
                 )
-            )
-        elif exceeds_limit:
-            # Proposed Section A.1 policy: pass with warning snapshot and cap payable at approval
-            results.append(
-                ValidationRuleResult(
-                    rule_id="V11",
-                    rule_version=v11_ver,
-                    outcome=RuleOutcomeEnum.PASS,
-                    reason_code=None,
-                    message=f"Requested amount exceeds remaining limit {remaining_limit}; payable will be capped at approval",
-                    inputs_snapshot=v11_snapshot,
+            elif exceeds_limit:
+                results.append(
+                    ValidationRuleResult(
+                        rule_id="V11",
+                        rule_version=v11_ver,
+                        outcome=RuleOutcomeEnum.PASS,
+                        reason_code=None,
+                        message=f"Requested amount exceeds remaining limit {remaining_limit}; payable will be capped at approval",
+                        inputs_snapshot=v11_snapshot,
+                    )
                 )
-            )
-        else:
-            results.append(
-                ValidationRuleResult(
-                    rule_id="V11",
-                    rule_version=v11_ver,
-                    outcome=RuleOutcomeEnum.PASS,
-                    reason_code=None,
-                    message="Requested amount is within remaining coverage limit",
-                    inputs_snapshot=v11_snapshot,
+            else:
+                results.append(
+                    ValidationRuleResult(
+                        rule_id="V11",
+                        rule_version=v11_ver,
+                        outcome=RuleOutcomeEnum.PASS,
+                        reason_code=None,
+                        message="Requested amount is within remaining coverage limit",
+                        inputs_snapshot=v11_snapshot,
+                    )
                 )
-            )
+        else:  # behavior == "REJECT"
+            if is_exhausted or exceeds_limit:
+                results.append(
+                    ValidationRuleResult(
+                        rule_id="V11",
+                        rule_version=v11_ver,
+                        outcome=RuleOutcomeEnum.FAIL,
+                        reason_code=cfg_v11.get("reason_code", "LIMIT_EXCEEDED"),
+                        message=f"Requested amount exceeds remaining limit of {remaining_limit}",
+                        inputs_snapshot=v11_snapshot,
+                    )
+                )
+            else:
+                results.append(
+                    ValidationRuleResult(
+                        rule_id="V11",
+                        rule_version=v11_ver,
+                        outcome=RuleOutcomeEnum.PASS,
+                        reason_code=None,
+                        message="Requested amount is within remaining coverage limit",
+                        inputs_snapshot=v11_snapshot,
+                    )
+                )
 
     # ==========================================
     # V12: Mandatory Fields Present
@@ -565,23 +609,57 @@ def evaluate_validation(val_input: ValidationInput) -> ValidationOutput:
             continue
 
         attached_docs = docs_by_code.get(req.doc_code, [])
-        has_valid = any(d.status == "VALID" for d in attached_docs)
+        is_identity_bearing = req.is_identity_bearing or any(
+            d.is_identity_bearing for d in attached_docs
+        )
+
+        if is_identity_bearing:
+            # Identity-bearing documents require status VALID and a current CONFIRMED attestation
+            has_valid = any(
+                d.status == "VALID"
+                and d.is_identity_attestation_current
+                and d.identity_attestation_result == "CONFIRMED"
+                for d in attached_docs
+            )
+        else:
+            has_valid = any(d.status == "VALID" for d in attached_docs)
+
         if has_valid:
             doc_type_evaluations[req.doc_code] = "VALID"
             continue
 
-        # Check why it's not valid: missing, pending review, or invalid (Section B.15)
+        # Check why it's not valid: missing, pending review, or invalid (P4 Task 1 & 5)
         if not attached_docs:
-            code = cfg_v13.get("reason_code_missing", "DOCUMENTS_MISSING")
+            code = cfg_v13.get("reason_code_missing", "DOCUMENT_MISSING")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) is missing"
-        elif any(d.status == "PENDING_REVIEW" for d in attached_docs):
+        elif is_identity_bearing and any(
+            d.is_identity_attestation_current and d.identity_attestation_result == "MISMATCH"
+            for d in attached_docs
+        ):
+            code = cfg_v13.get("reason_code_invalid", "DOCUMENT_INVALID")
+            blocked_reason = (
+                f"Mandatory document '{req.name}' ({req.doc_code}) identity attestation mismatch"
+            )
+        elif any(d.status == "PENDING_REVIEW" for d in attached_docs) or (
+            is_identity_bearing
+            and any(
+                d.status == "VALID"
+                and (not d.is_identity_attestation_current or d.identity_attestation_result is None)
+                for d in attached_docs
+            )
+        ):
             code = cfg_v13.get("reason_code_pending", "DOCUMENT_PENDING_REVIEW")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) is pending review"
-        elif all(d.status == "INVALID" for d in attached_docs):
+        elif all(d.status == "INVALID" for d in attached_docs) or (
+            is_identity_bearing
+            and any(
+                d.identity_attestation_result in ("MISMATCH", "UNCERTAIN") for d in attached_docs
+            )
+        ):
             code = cfg_v13.get("reason_code_invalid", "DOCUMENT_INVALID")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) was marked invalid"
         else:
-            code = cfg_v13.get("reason_code_missing", "DOCUMENTS_MISSING")
+            code = cfg_v13.get("reason_code_missing", "DOCUMENT_MISSING")
             blocked_reason = f"Mandatory document '{req.name}' ({req.doc_code}) is not valid"
 
         doc_type_evaluations[req.doc_code] = code

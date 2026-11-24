@@ -2,16 +2,18 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, "hardening/*"]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, "hardening/*"]
 
 jobs:
   quality:
-    name: Code Quality & Linting
+    name: Code Quality, SAST & Audits
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -24,21 +26,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Ruff Lint & Format Check
+      - name: Ruff Lint Check
         run: |
           ruff check .
+
+      - name: Ruff Format Check
+        run: |
           ruff format --check .
 
-      - name: Mypy Type Check
+      - name: Mypy Static Type Analysis
         run: |
           mypy app
 
-      - name: Import Linter Determinism Check
+      - name: Import Linter Architectural Boundary Check
         run: |
           lint-imports
 
+      - name: Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: SAST Security Audit (Bandit)
+        run: |
+          bandit -r app -ll -ii
+
+      - name: Dependency Vulnerability Audit (pip-audit)
+        run: |
+          pip-audit --desc on
+
   test:
-    name: Tests & Migrations
+    name: PostgreSQL Tests, Coverage & Backup Drill
     runs-on: ubuntu-latest
     needs: quality
     services:
@@ -70,22 +88,94 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Test Alembic Migrations Up and Down
+      - name: Install PostgreSQL Client Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Initialize PostgreSQL Roles and Schema Privileges
+        run: |
+          PGPASSWORD=postgres_ci_password psql -h localhost -U postgres -d insurance_claims_test -f deploy/init-db.sql
+
+      - name: Test Alembic Migrations Up and Down Drill
         env:
-          DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
-          MIGRATOR_DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          DATABASE_URL: postgresql+psycopg://migrator:migrator_secure_pass@localhost:5432/insurance_claims_test
+          MIGRATOR_DATABASE_URL: postgresql+psycopg://migrator:migrator_secure_pass@localhost:5432/insurance_claims_test
           SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
           AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
         run: |
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+          alembic check
 
-      - name: Run Pytest with Coverage
+      - name: Enforce Rules Engine Coverage Threshold (>= 90%)
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
-          MIGRATOR_DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          REQUIRE_POSTGRES: "1"
           SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
           AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
         run: |
-          pytest --cov=app --cov-report=term-missing --cov-report=xml
+          pytest tests/engine --cov=app/engine --cov-fail-under=90
+
+      - name: Run Full Test Suite with Overall Coverage Threshold (>= 80%)
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          PGPASSWORD: postgres_ci_password
+          REQUIRE_POSTGRES: "1"
+          SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
+          AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
+        run: |
+          set -o pipefail
+          pytest -ra --tb=short --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --junitxml=junit.xml 2>&1 | tee pytest.log
+
+      - name: Upload Test Results and Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: |
+            junit.xml
+            pytest.log
+
+      - name: Execute Automated PostgreSQL Backup & Restore Drill
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+          PGPASSWORD: postgres_ci_password
+          SECRET_KEY: ci-test-secret-key-32-chars-minimum-length
+          AUDIT_HMAC_KEY: ci-test-audit-hmac-key-32-chars-minimum
+        run: |
+          python scripts/backup_restore_drill.py --source-url postgresql+psycopg://postgres:postgres_ci_password@localhost:5432/insurance_claims_test
+
+  container_and_security:
+    name: Container Build & Dynamic Security Verification
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Container Image
+        run: |
+          docker build -t insurance-claim-platform:${{ github.sha }} -f deploy/Dockerfile .
+
+      - name: Scan Container Image for Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "insurance-claim-platform:${{ github.sha }}"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: OWASP ZAP Baseline Security Scan
+        env:
+          STAGING_URL: ${{ secrets.STAGING_URL }}
+        run: |
+          if [ -n "$STAGING_URL" ]; then
+            echo "Executing OWASP ZAP baseline scan against $STAGING_URL..."
+            docker run -v $(pwd):/zap/wrk/:rw -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+              -t "$STAGING_URL" -r zap_report.html
+          else
+            echo "::notice title=OWASP ZAP Status::OWASP ZAP baseline security scan: NOT RUN (STAGING_URL secret is not configured). Per Phase P7 requirement, unexecuted scans are reported as NOT RUN, never as passed."
+          fi

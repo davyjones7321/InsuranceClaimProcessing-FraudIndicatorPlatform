@@ -7,7 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.enums import LimitScope, PolicyStatus, ProductType
+from app.domain.enums import (
+    ClaimChannel,
+    ClaimStatus,
+    LimitScope,
+    PolicyStatus,
+    ProductType,
+)
 
 
 # Customer Schemas
@@ -42,13 +48,20 @@ class CustomerResponse(CustomerCreate):
 # Coverage Schemas
 class CoverageCreate(BaseModel):
     claim_category: str = Field(..., min_length=1, max_length=64)
-    limit_scope: LimitScope = LimitScope.PER_POLICY_PERIOD
+    limit_scope: LimitScope = Field(
+        ..., description="Explicit limit scope: PER_POLICY_PERIOD or PER_CLAIM"
+    )
     limit_amount: Decimal = Field(..., ge=0)
-    deductible: Decimal = Field(default=Decimal("0.00"), ge=0)
-    copay_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
+    deductible: Decimal = Field(..., ge=0, description="Deductible must be explicit (0.00 if none)")
+    copay_percent: Decimal = Field(
+        ..., ge=0, le=100, description="Copay percent must be explicit (0.00 if none)"
+    )
     waiting_period_days: int = Field(default=0, ge=0)
     conditions: dict[str, Any] | None = None
     is_excluded: bool = False
+    limit_exceeded_behavior: str = Field(
+        ..., pattern="^(CAP|REJECT)$", description="Limit policy: CAP or REJECT"
+    )
 
 
 class CoverageUpdate(BaseModel):
@@ -58,6 +71,7 @@ class CoverageUpdate(BaseModel):
     waiting_period_days: int | None = Field(default=None, ge=0)
     conditions: dict[str, Any] | None = None
     is_excluded: bool | None = None
+    limit_exceeded_behavior: str | None = Field(default=None, pattern="^(CAP|REJECT)$")
 
 
 class CoverageResponse(CoverageCreate):
@@ -160,19 +174,37 @@ class RequiredDocumentTypeResponse(RequiredDocumentTypeCreate):
     created_at: datetime
 
 
+# Claim Import Schema (P7 Task 3)
+class ClaimImportCreate(BaseModel):
+    claim_ref: str = Field(..., min_length=3, max_length=64)
+    policy_no: str = Field(..., min_length=3, max_length=64)
+    incident_date: date
+    claim_category: str = Field(..., min_length=1, max_length=64)
+    requested_amount: Decimal = Field(..., gt=0)
+    description: str = Field(..., min_length=1)
+    channel: ClaimChannel = Field(default=ClaimChannel.CUSTOMER)
+    source_system: str | None = Field(default=None, max_length=64)
+    external_ref: str | None = Field(default=None, max_length=128)
+    historical_status: ClaimStatus | None = Field(default=None)
+
+
 # Master Data Import Schemas
 class MasterDataBatchImport(BaseModel):
     customers: list[CustomerCreate] = Field(default_factory=list)
     policies: list[PolicyCreate] = Field(default_factory=list)
     required_documents: list[RequiredDocumentTypeCreate] = Field(default_factory=list)
+    claims: list[ClaimImportCreate] = Field(default_factory=list)
 
 
 class ImportSummary(BaseModel):
     dry_run: bool
     source_format: str
-    customers_processed: int
-    policies_processed: int
-    coverages_processed: int
-    items_created: int
-    items_updated: int
+    customers_processed: int = 0
+    policies_processed: int = 0
+    coverages_processed: int = 0
+    claims_processed: int = 0
+    items_created: int = 0
+    items_updated: int = 0
+    rejects_created: int = 0
+    batch_id: uuid.UUID | None = None
     errors: list[str] = Field(default_factory=list)

@@ -20,6 +20,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            "ALTER TABLE IF EXISTS alembic_version ALTER COLUMN version_num TYPE VARCHAR(64);"
+        )
+
     # 1. customers
     op.create_table(
         "customers",
@@ -389,7 +395,9 @@ def upgrade() -> None:
         sa.Column("evaluated_on", sa.Date(), nullable=False),
         sa.Column("score", sa.Integer(), nullable=False),
         sa.Column(
-            "category", sa.Enum("LOW", "MEDIUM", "HIGH", name="risk_category"), nullable=False
+            "category",
+            sa.Enum("LOW", "MEDIUM", "HIGH", "UNASSESSED", name="risk_category"),
+            nullable=False,
         ),
         sa.Column("requires_investigation", sa.Boolean(), nullable=False),
         sa.Column("inputs_snapshot", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False),

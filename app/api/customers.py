@@ -61,7 +61,11 @@ def create_customer(
         entity_id=str(customer.id),
         actor_role=current_user.role.value,
         actor_id=current_user.id,
-        event_data={"customer_no": customer.customer_no, "email": customer.email},
+        event_data={
+            "customer_id": str(customer.id),
+            "customer_no": customer.customer_no,
+            "state_region": customer.state_region,
+        },
     )
 
     return CustomerResponse.model_validate(customer)
@@ -152,7 +156,10 @@ def update_customer(
         entity_id=str(customer.id),
         actor_role=current_user.role.value,
         actor_id=current_user.id,
-        event_data={"updated_fields": list(update_data.keys())},
+        event_data={
+            "customer_id": str(customer.id),
+            "updated_fields": list(update_data.keys()),
+        },
     )
 
     return CustomerResponse.model_validate(customer)
