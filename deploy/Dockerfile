@@ -21,7 +21,7 @@ FROM alpine:3.23.8@sha256:5c216c9767869f6ec7c4718977601d52f087c5c7bf2fdfb198e403
 WORKDIR /app
 
 RUN apk upgrade --no-cache && \
-    apk add --no-cache python3 ca-certificates && \
+    apk add --no-cache python3 ca-certificates tzdata && \
     addgroup -S appgroup && \
     adduser -S -D -H -G appgroup -s /sbin/nologin appuser
 
