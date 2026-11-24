@@ -322,7 +322,7 @@ def seed_database(db: Session, default_password: str = "DemoPassword123!") -> No
             premium=prem,
             sum_insured=sum_ins,
             status=p_status,
-            source_system="SEED_V1",
+            source_system="DEMO_SEED",
             external_ref=f"DEMO-{p_no}",
         )
         db.add(policy)
