@@ -49,6 +49,24 @@ def test_api_registration_creates_customer_and_customer_role(
     assert user.password_hash != "CustomerPassword123!"
     assert user.password_hash.startswith("$argon2id$")
 
+    login = client.post(
+        "/api/auth/login",
+        json={
+            "email": "new.customer@example.com",
+            "password": "CustomerPassword123!",
+        },
+    )
+    assert login.status_code == 200
+    assert login.json()["user"]["role"] == UserRole.CUSTOMER.value
+
+
+def test_public_registration_cannot_assign_privileged_role(client: TestClient) -> None:
+    payload = _registration_payload()
+    payload["role"] = UserRole.ADMIN.value
+    response = client.post("/api/auth/register", json=payload)
+    assert response.status_code == 201
+    assert response.json()["role"] == UserRole.CUSTOMER.value
+
 
 def test_api_registration_rejects_duplicate_email(
     client: TestClient, db_session: Session
