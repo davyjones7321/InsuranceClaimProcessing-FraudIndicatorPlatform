@@ -11,6 +11,7 @@ Features:
 
 import secrets
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -26,6 +27,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -59,6 +61,8 @@ from app.schemas.decisions import DecisionCreate
 from app.schemas.documents import DocumentReviewRequest
 from app.security.csrf import generate_csrf_token, validate_csrf_token
 from app.security.password import verify_password
+from app.schemas.auth import RegistrationRequest
+from app.services.registration_service import RegistrationConflictError, register_customer
 from app.security.rate_limit import AccountLockedError, check_rate_limit, record_login_attempt
 from app.security.rbac import (
     PermissionDeniedError,
@@ -196,6 +200,120 @@ def login_action(
     )
     response.delete_cookie(key="claim_login_csrf", path="/ui")
     return response
+
+
+@router.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, db: Session = Depends(get_db)) -> Response:
+    """Render the public customer registration page."""
+    user, _, _ = get_ui_session(request, db)
+    if user:
+        return RedirectResponse(url="/ui/claims", status_code=303)
+
+    csrf_id = request.cookies.get("claim_login_csrf") or secrets.token_urlsafe(32)
+    response = templates.TemplateResponse(
+        request=request,
+        name="register.html",
+        context={
+            "request": request,
+            "user": None,
+            "csrf_token": generate_csrf_token(csrf_id),
+            "today": date.today().isoformat(),
+        },
+    )
+    response.set_cookie(
+        key="claim_login_csrf",
+        value=csrf_id,
+        max_age=settings.SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=settings.ENV in ("staging", "production"),
+        path="/ui",
+    )
+    return response
+
+
+@router.post("/register")
+def register_action(
+    request: Request,
+    full_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    dob: str = Form(...),
+    phone: str = Form(...),
+    address: str = Form(...),
+    state_region: str = Form(...),
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Create a customer account, then establish its browser session."""
+    csrf_id = request.cookies.get("claim_login_csrf")
+    if not csrf_id or not validate_csrf_token(csrf_id, csrf_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            request=request,
+            name="register.html",
+            context={
+                "request": request,
+                "user": None,
+                "csrf_token": generate_csrf_token(csrf_id),
+                "today": date.today().isoformat(),
+                "alert_message": "Passwords do not match",
+                "alert_type": "error",
+            },
+            status_code=400,
+        )
+
+    try:
+        payload = RegistrationRequest(
+            full_name=full_name,
+            email=email,
+            password=password,
+            dob=dob,
+            phone=phone,
+            address=address,
+            state_region=state_region,
+        )
+        user = register_customer(db, payload)
+        session_id = create_session(db, user)
+        db.commit()
+    except RegistrationConflictError as exc:
+        db.rollback()
+        message = str(exc)
+    except (ValidationError, ValueError) as exc:
+        db.rollback()
+        message = (
+            "; ".join(error["msg"] for error in exc.errors())
+            if isinstance(exc, ValidationError)
+            else str(exc)
+        )
+    else:
+        response = RedirectResponse(url="/ui/claims", status_code=303)
+        response.set_cookie(
+            key=settings.SESSION_COOKIE_NAME,
+            value=session_id,
+            max_age=settings.SESSION_MAX_AGE_SECONDS,
+            httponly=True,
+            samesite="lax",
+            secure=settings.ENV in ("staging", "production"),
+        )
+        response.delete_cookie(key="claim_login_csrf", path="/ui")
+        return response
+
+    return templates.TemplateResponse(
+        request=request,
+        name="register.html",
+        context={
+            "request": request,
+            "user": None,
+            "csrf_token": generate_csrf_token(csrf_id),
+            "today": date.today().isoformat(),
+            "alert_message": message,
+            "alert_type": "error",
+        },
+        status_code=400,
+    )
 
 
 @router.post("/logout")
