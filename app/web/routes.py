@@ -270,7 +270,7 @@ def register_action(
             full_name=full_name,
             email=email,
             password=password,
-            dob=dob,
+            dob=date.fromisoformat(dob),
             phone=phone,
             address=address,
             state_region=state_region,
