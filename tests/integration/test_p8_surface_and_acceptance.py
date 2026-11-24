@@ -531,8 +531,11 @@ def test_observability_healthz_and_readyz(client: TestClient) -> None:
     assert data["hmac_key_present"] is True
 
 
-def test_observability_metrics_aggregation(client: TestClient) -> None:
+def test_observability_metrics_aggregation(
+    client: TestClient, db_session: Session, test_users: dict[str, User]
+) -> None:
     """Endpoint /metrics reports latency, request count, 5xx rate, and status breakdown."""
+    login_client(client, db_session, test_users["admin"])
     res = client.get("/metrics")
     assert res.status_code == 200
     metrics = res.json()
