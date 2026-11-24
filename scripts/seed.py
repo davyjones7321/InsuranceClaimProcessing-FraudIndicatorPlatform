@@ -1,8 +1,8 @@
 """Deterministic seed script for the insurance claims platform.
 
 Refuses execution in production environment.
-Creates users for all roles, 25 customers, policies across HEALTH/VEHICLE/PROPERTY,
-coverages, exclusions, insured items, and required document configurations.
+Creates demo users for all roles, 25 fictional customers, 13 policies, and exactly 50
+fictional claims across HEALTH/VEHICLE/PROPERTY with related workflow records.
 """
 
 import sys
@@ -60,7 +60,7 @@ def seed_uuid(name: str) -> uuid.UUID:
     return uuid.uuid5(SEED_NAMESPACE, name)
 
 
-def seed_database(db: Session, default_password: str = "DevPassword123!") -> None:
+def seed_database(db: Session, default_password: str = "DemoPassword123!") -> None:
     """Populate database with deterministic master data."""
     if settings.ENV == "production":
         raise RuntimeError("Seed script must not run in production environment.")
@@ -115,6 +115,33 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
     regions = ["MH", "KA", "DL", "TN", "TS", "WB", "GJ"]
     customers: list[Customer] = []
     base_dob = date(1985, 1, 1)
+    demo_names = [
+        "Aarav Mehta",
+        "Diya Nair",
+        "Kabir Shah",
+        "Ananya Rao",
+        "Ishaan Kapoor",
+        "Meera Iyer",
+        "Arjun Reddy",
+        "Sana Khan",
+        "Rohan Das",
+        "Tara Menon",
+        "Vihaan Patel",
+        "Aisha Thomas",
+        "Neel Joshi",
+        "Kavya Singh",
+        "Aditya Bose",
+        "Mira Kulkarni",
+        "Reyansh Gupta",
+        "Zoya Fernandes",
+        "Dev Malhotra",
+        "Ira Chatterjee",
+        "Neil Varma",
+        "Myra Sethi",
+        "Ritvik Pillai",
+        "Sara Dutta",
+        "Om Prakash",
+    ]
 
     for i in range(1, 26):
         c_no = f"CUST-{10000 + i}"
@@ -124,14 +151,14 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
             cust = Customer(
                 id=cust_id,
                 customer_no=c_no,
-                full_name=f"Customer Name {i}",
+                full_name=demo_names[i - 1],
                 dob=base_dob + timedelta(days=i * 200),
                 email=f"customer{i}@example.com",
-                phone=f"+919876543{i:03d}",
-                address=f"Street #{i}, Tech City Block {i % 5 + 1}",
+                phone=f"+910000000{i:03d}",
+                address=f"Demo Street {i}, Sample Layout {i % 5 + 1}",
                 state_region=regions[i % len(regions)],
-                source_system="SEED_V1",
-                external_ref=f"EXT-CUST-{i:04d}",
+                source_system="DEMO_SEED",
+                external_ref=f"DEMO-CUST-{i:04d}",
             )
             db.add(cust)
             customers.append(cust)
@@ -315,8 +342,8 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
             premium=prem,
             sum_insured=sum_ins,
             status=p_status,
-            source_system="SEED_V1",
-            external_ref=f"EXT-{p_no}",
+            source_system="DEMO_SEED",
+            external_ref=f"DEMO-{p_no}",
         )
         db.add(policy)
 
@@ -455,9 +482,9 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
 
     db.flush()
 
-    # 6. Historical Claims (230 deterministic records across all statuses)
+    # 6. Demo claims. Never add a second demo batch or delete existing user data.
     existing_claim_count = db.scalar(select(func.count(Claim.id))) or 0
-    if existing_claim_count < 200:
+    if existing_claim_count == 0:
         all_policies = list(db.scalars(select(Policy)).all())
         staff_user = db.scalars(select(User).where(User.role == UserRole.STAFF)).first()
         assessor_user = db.scalars(select(User).where(User.role == UserRole.ASSESSOR)).first()
@@ -472,22 +499,22 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
         investigator_id = investigator_user.id if investigator_user else fallback_actor_id
         manager_id = manager_user.id if manager_user else fallback_actor_id
 
-        # 230 statuses distribution
+        # Exactly 50 records, spread across the visible workflow states.
         status_distribution = (
-            [ClaimStatus.REGISTERED] * 20
-            + [ClaimStatus.DOCUMENTS_PENDING] * 15
-            + [ClaimStatus.VALIDATION_FAILED] * 15
-            + [ClaimStatus.VALIDATED] * 15
-            + [ClaimStatus.RISK_EVALUATED] * 15
-            + [ClaimStatus.UNDER_INVESTIGATION] * 20
-            + [ClaimStatus.ESCALATED] * 10
-            + [ClaimStatus.INVESTIGATION_COMPLETE] * 10
-            + [ClaimStatus.READY_FOR_ASSESSMENT] * 20
-            + [ClaimStatus.ASSESSED] * 20
-            + [ClaimStatus.APPROVED] * 35
-            + [ClaimStatus.REJECTED] * 20
-            + [ClaimStatus.INFO_REQUESTED] * 10
-            + [ClaimStatus.WITHDRAWN] * 5
+            [ClaimStatus.REGISTERED] * 3
+            + [ClaimStatus.DOCUMENTS_PENDING] * 4
+            + [ClaimStatus.VALIDATION_FAILED] * 2
+            + [ClaimStatus.VALIDATED] * 3
+            + [ClaimStatus.RISK_EVALUATED] * 3
+            + [ClaimStatus.UNDER_INVESTIGATION] * 6
+            + [ClaimStatus.ESCALATED] * 3
+            + [ClaimStatus.INVESTIGATION_COMPLETE] * 3
+            + [ClaimStatus.READY_FOR_ASSESSMENT] * 4
+            + [ClaimStatus.ASSESSED] * 4
+            + [ClaimStatus.APPROVED] * 7
+            + [ClaimStatus.REJECTED] * 4
+            + [ClaimStatus.INFO_REQUESTED] * 2
+            + [ClaimStatus.WITHDRAWN] * 2
         )
 
         categories_by_product = {
@@ -498,8 +525,8 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
 
         for idx, target_status in enumerate(status_distribution):
             seq = idx + 1
-            claim_id = seed_uuid(f"seed_claim_{seq}")
-            claim_ref = f"CLM-2026-{seq:06d}"
+            claim_id = seed_uuid(f"demo_claim_{seq}")
+            claim_ref = f"DEMO-2026-{seq:04d}"
             policy = all_policies[idx % len(all_policies)]
             cats = categories_by_product.get(policy.product_type, ["HOSPITALIZATION"])
             category = cats[idx % len(cats)]
@@ -518,6 +545,33 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                 incident_d + timedelta(days=2 + (idx % 8)), time(10, 0, 0), tzinfo=UTC
             )
 
+            scenario_descriptions = {
+                ProductType.HEALTH: [
+                    "Hospital admission after a documented road accident; itemised bills attached.",
+                    "Planned surgery with a mismatch between the submitted invoice and policy limit.",
+                    "Emergency treatment with a missing discharge summary.",
+                ],
+                ProductType.VEHICLE: [
+                    "Rear-end collision reported with repair estimate and incident photographs.",
+                    "Vehicle damage reported shortly after policy renewal; timeline needs review.",
+                    "Repair estimate includes duplicate line items requiring assessor review.",
+                ],
+                ProductType.PROPERTY: [
+                    "Kitchen fire caused smoke and structural damage; repair quotation submitted.",
+                    "Water damage reported with photographs and an ownership document pending.",
+                    "Property loss amount differs from the initial survey estimate.",
+                ],
+            }
+            description = scenario_descriptions[policy.product_type][idx % 3]
+            if target_status in (ClaimStatus.UNDER_INVESTIGATION, ClaimStatus.ESCALATED):
+                description += (
+                    " Demo review flag: supporting evidence requires additional verification."
+                )
+            elif target_status == ClaimStatus.VALIDATION_FAILED:
+                description += (
+                    " Demo validation issue: incident date or policy details need correction."
+                )
+
             claim = Claim(
                 id=claim_id,
                 claim_ref=claim_ref,
@@ -526,12 +580,14 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                 claim_category=category,
                 incident_date=incident_d,
                 incident_location=f"Location {policy.customer.state_region}",
-                incident_description=f"Automated deterministic seeded claim event #{seq}",
+                incident_description=description,
                 requested_amount=amt,
                 registered_at=registered_dt,
                 registered_by=staff_id,
                 channel=ClaimChannel.STAFF if idx % 2 == 0 else ClaimChannel.CUSTOMER,
                 status=target_status,
+                source_system="DEMO_SEED",
+                external_ref=f"DEMO-CLAIM-{seq:04d}",
                 status_version=4
                 if target_status
                 in (ClaimStatus.ASSESSED, ClaimStatus.APPROVED, ClaimStatus.REJECTED)
@@ -608,8 +664,14 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
                     ClaimStatus.ESCALATED,
                     ClaimStatus.INVESTIGATION_COMPLETE,
                 )
-                r_score = 35 if is_flagged else 10
-                r_cat = RiskCategory.MEDIUM if is_flagged else RiskCategory.LOW
+                r_score = (
+                    55 if target_status == ClaimStatus.ESCALATED else (35 if is_flagged else 10)
+                )
+                r_cat = (
+                    RiskCategory.HIGH
+                    if target_status == ClaimStatus.ESCALATED
+                    else (RiskCategory.MEDIUM if is_flagged else RiskCategory.LOW)
+                )
                 r_eval_id = seed_uuid(f"risk_eval_{seq}")
                 db.add(
                     RiskEvaluation(
@@ -762,6 +824,13 @@ def seed_database(db: Session, default_password: str = "DevPassword123!") -> Non
         actor_role=UserRole.ADMIN.value,
         actor_id=actor_id,
         event_data={
+            "environment": settings.ENV,
+            "record_counts": {
+                "claims": len(status_distribution) if existing_claim_count == 0 else 0,
+                "customers": len(customers),
+                "policies": len(policy_templates),
+                "document_types": len(doc_configs),
+            },
             "customers_count": len(customers),
             "policies_count": len(policy_templates),
             "doc_types_count": len(doc_configs),
@@ -779,7 +848,7 @@ def main() -> None:
     db = SessionLocal()
     try:
         seed_database(db)
-        print("Master data successfully seeded with deterministic data.")
+        print("Demo data seed completed. Existing claim data was not deleted or overwritten.")
     except Exception as exc:
         db.rollback()
         print(f"Error seeding database: {exc}", file=sys.stderr)

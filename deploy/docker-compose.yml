@@ -35,6 +35,22 @@ services:
     command: ["alembic", "upgrade", "head"]
     restart: "no"
 
+  demo_seed:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: claim_platform_demo_seed
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    environment:
+      ENV: development
+      DATABASE_URL: postgresql+psycopg://app_rw:app_rw_secure_pass@db:5432/insurance_claims
+      SECRET_KEY: local-dev-secret-key-32-chars-minimum-length
+      AUDIT_HMAC_KEY: local-dev-audit-hmac-key-32-chars-minimum
+    command: ["python", "-m", "scripts.seed"]
+    restart: "no"
+
   app:
     build:
       context: ..
@@ -45,6 +61,8 @@ services:
       db:
         condition: service_healthy
       migration:
+        condition: service_completed_successfully
+      demo_seed:
         condition: service_completed_successfully
     environment:
       ENV: development

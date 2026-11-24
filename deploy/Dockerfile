@@ -29,6 +29,7 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY app/ ./app/
+COPY scripts/ ./scripts/
 COPY templates/ ./templates/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./

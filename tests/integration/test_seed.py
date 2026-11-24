@@ -21,7 +21,7 @@ from scripts.seed import seed_database
 
 
 def test_seed_database_creates_all_expected_records(db_session: Session) -> None:
-    """Verify seed populates users, 25 customers, policies across all products, and configurations."""
+    """Verify demo seed populates users, 25 fictional customers, policies, and 50 claims."""
     seed_database(db_session)
 
     # 1. Verify Customers count
@@ -68,9 +68,9 @@ def test_seed_database_creates_all_expected_records(db_session: Session) -> None
     doc_types_count = db_session.scalar(select(func.count(RequiredDocumentType.id)))
     assert doc_types_count and doc_types_count >= 10
 
-    # 7. Verify Historical Claims (200+ across all statuses)
+    # 7. Verify exactly 50 demo claims across all workflow statuses
     claim_count = db_session.scalar(select(func.count(Claim.id)))
-    assert claim_count and claim_count >= 200
+    assert claim_count == 50
 
     claim_statuses = set(db_session.scalars(select(Claim.status)).all())
     expected_claim_statuses = {
@@ -97,6 +97,10 @@ def test_seed_database_creates_all_expected_records(db_session: Session) -> None
     ).first()
     assert seed_audit is not None
     assert seed_audit.event_data["customers_count"] == 25
+    assert seed_audit.event_data["record_counts"]["claims"] == 50
+    demo_claim = db_session.scalars(select(Claim)).first()
+    assert demo_claim is not None
+    assert demo_claim.source_system == "DEMO_SEED"
 
 
 def test_seed_database_is_idempotent(db_session: Session) -> None:
@@ -106,7 +110,9 @@ def test_seed_database_is_idempotent(db_session: Session) -> None:
     seed_database(db_session)
 
     customer_count = db_session.scalar(select(func.count(Customer.id)))
+    claim_count = db_session.scalar(select(func.count(Claim.id)))
     assert customer_count == 25
+    assert claim_count == 50
 
 
 def test_seed_database_refuses_production(
