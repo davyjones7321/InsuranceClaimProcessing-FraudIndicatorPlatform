@@ -47,9 +47,7 @@ def register_customer(db: Session, payload: RegistrationRequest) -> User:
         db.flush()
     except IntegrityError as exc:
         db.rollback()
-        raise RegistrationConflictError(
-            "An account with this email already exists"
-        ) from exc
+        raise RegistrationConflictError("An account with this email already exists") from exc
 
     write_audit_log(
         db=db,
