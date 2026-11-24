@@ -116,11 +116,31 @@ def seed_database(db: Session, default_password: str = "DemoPassword123!") -> No
     customers: list[Customer] = []
     base_dob = date(1985, 1, 1)
     demo_names = [
-        "Aarav Mehta", "Diya Nair", "Kabir Shah", "Ananya Rao", "Ishaan Kapoor",
-        "Meera Iyer", "Arjun Reddy", "Sana Khan", "Rohan Das", "Tara Menon",
-        "Vihaan Patel", "Aisha Thomas", "Neel Joshi", "Kavya Singh", "Aditya Bose",
-        "Mira Kulkarni", "Reyansh Gupta", "Zoya Fernandes", "Dev Malhotra", "Ira Chatterjee",
-        "Neil Varma", "Myra Sethi", "Ritvik Pillai", "Sara Dutta", "Om Prakash",
+        "Aarav Mehta",
+        "Diya Nair",
+        "Kabir Shah",
+        "Ananya Rao",
+        "Ishaan Kapoor",
+        "Meera Iyer",
+        "Arjun Reddy",
+        "Sana Khan",
+        "Rohan Das",
+        "Tara Menon",
+        "Vihaan Patel",
+        "Aisha Thomas",
+        "Neel Joshi",
+        "Kavya Singh",
+        "Aditya Bose",
+        "Mira Kulkarni",
+        "Reyansh Gupta",
+        "Zoya Fernandes",
+        "Dev Malhotra",
+        "Ira Chatterjee",
+        "Neil Varma",
+        "Myra Sethi",
+        "Ritvik Pillai",
+        "Sara Dutta",
+        "Om Prakash",
     ]
 
     for i in range(1, 26):
@@ -544,9 +564,13 @@ def seed_database(db: Session, default_password: str = "DemoPassword123!") -> No
             }
             description = scenario_descriptions[policy.product_type][idx % 3]
             if target_status in (ClaimStatus.UNDER_INVESTIGATION, ClaimStatus.ESCALATED):
-                description += " Demo review flag: supporting evidence requires additional verification."
+                description += (
+                    " Demo review flag: supporting evidence requires additional verification."
+                )
             elif target_status == ClaimStatus.VALIDATION_FAILED:
-                description += " Demo validation issue: incident date or policy details need correction."
+                description += (
+                    " Demo validation issue: incident date or policy details need correction."
+                )
 
             claim = Claim(
                 id=claim_id,
