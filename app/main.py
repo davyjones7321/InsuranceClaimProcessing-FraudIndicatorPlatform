@@ -21,9 +21,28 @@ from app.api.master_data_import import router as master_data_import_router
 from app.api.policies import router as policies_router
 from app.api.required_documents import router as required_documents_router
 from app.config import settings
+from app.engine.product_profiles import CALCULATION_SPEC_STATUS
 from app.observability import logger, metrics_collector
 from app.security.csrf import validate_csrf_token
 from app.web.routes import router as web_router
+
+
+def validate_calculation_spec_activation(
+    *,
+    environment: str,
+    calculation_spec_status: str,
+    risk_acceptance_ref: str,
+) -> None:
+    """Block production use of illustrative formulas without recorded owner acceptance."""
+    if (
+        environment == "production"
+        and calculation_spec_status == "ILLUSTRATIVE"
+        and not risk_acceptance_ref.strip()
+    ):
+        raise RuntimeError(
+            "Production activation blocked: illustrative calculation formulas require "
+            "a recorded owner risk-acceptance reference (CALCULATION_SPEC_RISK_ACCEPTANCE_REF)"
+        )
 
 
 @asynccontextmanager
@@ -31,6 +50,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup and shutdown lifecycle events."""
     # 1. Validate production configuration (Phase P8 Task 4)
     if settings.ENV == "production":
+        validate_calculation_spec_activation(
+            environment=settings.ENV,
+            calculation_spec_status=CALCULATION_SPEC_STATUS,
+            risk_acceptance_ref=settings.CALCULATION_SPEC_RISK_ACCEPTANCE_REF,
+        )
         if settings.DEBUG:
             raise RuntimeError("DEBUG must not be True in production environment")
         if len(settings.SECRET_KEY) < 32 or "dev-" in settings.SECRET_KEY:

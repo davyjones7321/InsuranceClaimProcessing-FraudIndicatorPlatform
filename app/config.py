@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     # Ruleset
     ACTIVE_RULESET_VERSION: str = "v1"
     ENGINE_VERSION: str = "1.0.0"
+    CALCULATION_SPEC_RISK_ACCEPTANCE_REF: str = Field(
+        default="",
+        description="Recorded owner risk-acceptance reference required to run illustrative formulas in production",
+    )
 
     @field_validator("DEBUG")
     @classmethod

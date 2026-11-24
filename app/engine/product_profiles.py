@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import NamedTuple
 
 FORMULA_SOURCE: str = "ILLUSTRATIVE_DEFAULTS"
+CALCULATION_SPEC_STATUS: str = "ILLUSTRATIVE"
 
 
 class ProductTypeEnum(StrEnum):

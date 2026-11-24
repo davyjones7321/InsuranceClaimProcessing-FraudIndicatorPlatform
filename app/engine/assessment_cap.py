@@ -13,6 +13,7 @@ Rounding occurs exactly once at the final step using ROUND_HALF_UP to 2 decimal 
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.engine.product_profiles import (
+    CALCULATION_SPEC_STATUS,
     FORMULA_SOURCE,
     ProductTypeEnum,
     get_product_profile,
@@ -101,6 +102,7 @@ def calculate_assessment_cap(inp: AssessmentInput) -> AssessmentOutput:
         "product_type": product_key,
         "profile_name": profile.name,
         "formula_source": FORMULA_SOURCE,
+        "calculation_spec_status": CALCULATION_SPEC_STATUS,
         "ordered_steps": list(profile.ordered_steps),
         "requested_amount": str(round_money(inp.requested_amount)),
         "assessed_loss": str(round_money(inp.assessed_loss)),
