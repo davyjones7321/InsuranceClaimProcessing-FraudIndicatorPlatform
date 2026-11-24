@@ -11,8 +11,8 @@ class RegistrationRequest(BaseModel):
     """Public self-registration payload; public accounts are always customers."""
 
     full_name: str = Field(..., min_length=2, max_length=255)
-    email: EmailStr
-    password: str
+    email: EmailStr = Field(..., max_length=255)
+    password: str = Field(..., max_length=128)
     dob: date
     phone: str = Field(..., min_length=7, max_length=32)
     address: str = Field(..., min_length=5, max_length=1000)
@@ -37,4 +37,7 @@ class RegistrationRequest(BaseModel):
     @field_validator("full_name", "phone", "address", "state_region")
     @classmethod
     def strip_text_fields(cls, value: str) -> str:
-        return value.strip()
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("This field cannot be blank")
+        return cleaned
