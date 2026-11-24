@@ -97,8 +97,10 @@ def test_seed_database_creates_all_expected_records(db_session: Session) -> None
     ).first()
     assert seed_audit is not None
     assert seed_audit.event_data["customers_count"] == 25
-    assert seed_audit.event_data["claims_count"] == 50
-    assert seed_audit.event_data["dataset"] == "DEMO"
+    assert seed_audit.event_data["record_counts"]["claims"] == 50
+    demo_claim = db_session.scalars(select(Claim)).first()
+    assert demo_claim is not None
+    assert demo_claim.source_system == "DEMO_SEED"
 
 
 def test_seed_database_is_idempotent(db_session: Session) -> None:
