@@ -154,3 +154,9 @@ Open http://localhost:8000. The standalone image does not include the Caddy reve
 ## Prototype limitations
 
 This repository is a demonstration prototype, not a production-ready insurance system. Demo data is fictional; risk flags are illustrative and are not validated fraud findings. Review authentication, secrets, email verification, account lifecycle, document handling, monitoring, and business rules before real deployment. Docker Compose defaults and demo credentials are intended for local demonstration only.
+
+## Customer account registration (prototype)
+
+The browser sign-in page at `/ui/login` links to `/ui/register`. Public registration creates a customer profile and linked user account. It requires a full name, email, password (minimum 12 characters), date of birth, phone, address, and state/region. Email addresses must be unique, and public registration always assigns the customer role. Privileged accounts must be provisioned separately.
+
+The JSON endpoint is `POST /api/auth/register`. Email ownership verification, password recovery, and production account-approval workflows are not implemented.
