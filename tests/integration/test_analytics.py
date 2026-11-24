@@ -39,9 +39,9 @@ def test_manager_analytics_dashboard_metrics(client: TestClient, db_session: Ses
 
     # 2. Volume by Status
     vol_stat = {item["status"]: item["count"] for item in data["volume_by_status"]}
-    assert vol_stat.get("APPROVED", 0) == 35
-    assert vol_stat.get("REJECTED", 0) == 20
-    assert vol_stat.get("REGISTERED", 0) == 20
+    assert vol_stat.get("APPROVED", 0) == 7
+    assert vol_stat.get("REJECTED", 0) == 4
+    assert vol_stat.get("REGISTERED", 0) == 3
 
     # 3. Volume Over Time
     assert len(data["volume_over_time"]) > 0
@@ -117,7 +117,7 @@ def test_analytics_csv_export(client: TestClient, db_session: Session) -> None:
 
     reader = csv.reader(io.StringIO(resp.text))
     rows = list(reader)
-    assert len(rows) > 200  # header + 230 seeded claims
+    assert len(rows) == 51  # header + 50 demo claims
 
     header = rows[0]
     assert "Claim Reference" in header
