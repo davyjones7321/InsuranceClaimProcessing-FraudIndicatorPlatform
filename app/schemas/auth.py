@@ -22,7 +22,7 @@ class RegistrationRequest(BaseModel):
     @classmethod
     def validate_password_length(cls, value: str) -> str:
         if len(value) < settings.PASSWORD_MIN_LENGTH:
-            raise ValueError(f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters
+            raise ValueError(f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters")
         return value
 
     @field_validator("dob")
