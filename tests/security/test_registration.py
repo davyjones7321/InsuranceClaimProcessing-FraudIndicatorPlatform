@@ -68,9 +68,7 @@ def test_public_registration_cannot_assign_privileged_role(client: TestClient) -
     assert response.json()["role"] == UserRole.CUSTOMER.value
 
 
-def test_api_registration_rejects_duplicate_email(
-    client: TestClient, db_session: Session
-) -> None:
+def test_api_registration_rejects_duplicate_email(client: TestClient, db_session: Session) -> None:
     payload = _registration_payload()
     assert client.post("/api/auth/register", json=payload).status_code == 201
 
@@ -105,12 +103,7 @@ def test_ui_registration_creates_account_and_starts_session(
     user = db_session.query(User).filter_by(email="new.customer@example.com").one()
     assert user.role == UserRole.CUSTOMER
     assert user.customer_id is not None
-    assert (
-        db_session.query(AuditLog)
-        .filter(AuditLog.action == "USER_REGISTERED")
-        .count()
-        == 1
-    )
+    assert db_session.query(AuditLog).filter(AuditLog.action == "USER_REGISTERED").count() == 1
 
 
 def test_ui_registration_rejects_password_mismatch(client: TestClient) -> None:
