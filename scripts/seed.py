@@ -824,8 +824,13 @@ def seed_database(db: Session, default_password: str = "DemoPassword123!") -> No
         actor_role=UserRole.ADMIN.value,
         actor_id=actor_id,
         event_data={
-            "dataset": "DEMO",
-            "claims_count": len(status_distribution) if existing_claim_count == 0 else 0,
+            "environment": settings.ENV,
+            "record_counts": {
+                "claims": len(status_distribution) if existing_claim_count == 0 else 0,
+                "customers": len(customers),
+                "policies": len(policy_templates),
+                "document_types": len(doc_configs),
+            },
             "customers_count": len(customers),
             "policies_count": len(policy_templates),
             "doc_types_count": len(doc_configs),
