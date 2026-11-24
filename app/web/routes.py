@@ -55,14 +55,13 @@ from app.domain.enums import (
 )
 from app.engine.assessment_cap import calculate_assessment_cap
 from app.engine.types import AssessmentInput
+from app.schemas.auth import RegistrationRequest
 from app.schemas.assessments import AssessmentCreate
 from app.schemas.claims import ClaimCreate
 from app.schemas.decisions import DecisionCreate
 from app.schemas.documents import DocumentReviewRequest
 from app.security.csrf import generate_csrf_token, validate_csrf_token
 from app.security.password import verify_password
-from app.schemas.auth import RegistrationRequest
-from app.services.registration_service import RegistrationConflictError, register_customer
 from app.security.rate_limit import AccountLockedError, check_rate_limit, record_login_attempt
 from app.security.rbac import (
     PermissionDeniedError,
@@ -74,6 +73,7 @@ from app.services.assessment_service import AssessmentService
 from app.services.claim_service import ClaimService, ClaimValidationError
 from app.services.decision_service import DecisionPermissionError, DecisionService
 from app.services.investigation_service import InvestigationService
+from app.services.registration_service import RegistrationConflictError, register_customer
 from app.services.risk_service import RiskService
 
 router = APIRouter(prefix="/ui", tags=["Web UI"])
