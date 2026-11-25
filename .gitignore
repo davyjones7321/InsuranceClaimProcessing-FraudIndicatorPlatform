@@ -19,3 +19,10 @@ storage/
 backups/
 *.dump
 *.sqlite
+.agents/skills/
+.cursor/skills/
+docs/
+HARDENING_PROMPT.md
+decisions.tsv
+goal.md
+

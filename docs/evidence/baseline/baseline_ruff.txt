@@ -1,7 +1,0 @@
-=== RUFF CHECK ===
-$ ruff check --no-cache .
-All checks passed!
-
-=== RUFF FORMAT CHECK ===
-$ ruff format --check --no-cache .
-110 files already formatted
